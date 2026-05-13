@@ -1,0 +1,81 @@
+/**
+ * Map templates — 8 maps defining the full campaign.
+ * Each template specifies enemy count ranges; MapGenerator randomizes within them.
+ * From DRONE_STRIKE_REBUILD.md §Map Templates.
+ */
+export const MAP_TEMPLATES = [
+  {
+    id: 1,
+    name: 'River Crossing',
+    setting: 'bridge',
+    difficulty: 1,
+    enemies: { soldier: [8,12], rocket: [0,2], tank: [1,2], flakGun: [1,2], commander: [0,1], enemyDrone: [0,0] },
+    objective: 'destroy_hq',
+    waves: 1,
+  },
+  {
+    id: 2,
+    name: 'Desert Push',
+    setting: 'desert',
+    difficulty: 2,
+    enemies: { soldier: [10,16], rocket: [2,4], tank: [2,3], flakGun: [2,3], commander: [1,1], enemyDrone: [0,0] },
+    objective: 'hold_zone',
+    waves: 2,
+  },
+  {
+    id: 3,
+    name: 'Ambush Valley',
+    setting: 'forest',
+    difficulty: 3,
+    enemies: { soldier: [12,18], rocket: [3,5], tank: [2,4], flakGun: [3,4], commander: [1,2], enemyDrone: [1,2] },
+    objective: 'escort_convoy',
+    waves: 2,
+  },
+  {
+    id: 4,
+    name: 'Urban Hell',
+    setting: 'urban',
+    difficulty: 4,
+    enemies: { soldier: [14,20], rocket: [4,6], tank: [3,5], flakGun: [4,5], commander: [2,2], enemyDrone: [2,3] },
+    objective: 'destroy_hq',
+    waves: 3,
+  },
+  {
+    id: 5,
+    name: 'Night Raid',
+    setting: 'bridge',
+    difficulty: 5,
+    lightingOverride: 'night',
+    enemies: { soldier: [16,22], rocket: [5,7], tank: [4,6], flakGun: [5,6], commander: [2,3], enemyDrone: [3,4] },
+    objective: 'hold_zone',
+    waves: 3,
+  },
+  {
+    id: 6,
+    name: 'Fortress',
+    setting: 'urban',
+    difficulty: 6,
+    enemies: { soldier: [18,24], rocket: [6,8], tank: [5,7], flakGun: [6,8], commander: [3,3], enemyDrone: [4,5] },
+    objective: 'destroy_hq',
+    waves: 4,
+  },
+  {
+    id: 7,
+    name: 'Final Push',
+    setting: 'desert',
+    difficulty: 7,
+    enemies: { soldier: [20,28], rocket: [7,10], tank: [6,9], flakGun: [7,9], commander: [3,4], enemyDrone: [5,7] },
+    objective: 'escort_convoy',
+    waves: 4,
+  },
+  {
+    id: 8,
+    name: 'The Command',
+    setting: 'urban',
+    difficulty: 8,
+    enemies: { soldier: [24,32], rocket: [8,12], tank: [8,12], flakGun: [10,12], commander: [4,5], enemyDrone: [6,8] },
+    objective: 'destroy_hq',
+    waves: 5,
+    bossSpawn: true,
+  },
+];

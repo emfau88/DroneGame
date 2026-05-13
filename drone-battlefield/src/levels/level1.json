@@ -1,0 +1,35 @@
+{
+  "id": 1,
+  "name": "Bridge Breakpoint",
+  "setting": "bridge",
+  "timeLimit": null,
+  "winThreshold": 0.88,
+  "weapons": ["BOMB"],
+  "weaponUses": { "BOMB": 1 },
+  "objectives": {
+    "primary": "Protect the bridge. Stop the red push.",
+    "secondary": "Eliminate the enemy Commander."
+  },
+  "terrain": {
+    "type": "bridge",
+    "riverWidth": 4,
+    "bridgeWidth": 9
+  },
+  "units": {
+    "blue": [
+      { "type": "tank",    "lane": -7, "x": -22 },
+      { "type": "soldier", "lane": -7, "x": -23, "count": 4 },
+      { "type": "tank",    "lane":  0, "x": -22 },
+      { "type": "soldier", "lane":  0, "x": -23, "count": 4 },
+      { "type": "soldier", "lane":  7, "x": -22, "count": 4 }
+    ],
+    "red": [
+      { "type": "tank",      "lane": -7, "x": 22 },
+      { "type": "soldier",   "lane": -7, "x": 23, "count": 4 },
+      { "type": "commander", "lane":  0, "x": 23 },
+      { "type": "soldier",   "lane":  0, "x": 24, "count": 5 },
+      { "type": "tank",      "lane":  7, "x": 22 },
+      { "type": "soldier",   "lane":  7, "x": 23, "count": 4 }
+    ]
+  }
+}

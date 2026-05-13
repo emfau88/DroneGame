@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Drone Battlefield</title>
+  <style>
+    /* ─── Reset ───────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #0a0f18;
+      font-family: 'Rajdhani', system-ui, sans-serif;
+      color: #fff;
+      touch-action: none;
+    }
+
+    /* ─── Canvas ──────────────────────────────────────── */
+    #canvas-container {
+      position: fixed; inset: 0;
+    }
+    #canvas-container canvas {
+      display: block; width: 100% !important; height: 100% !important;
+    }
+
+    /* ─── Overlay ─────────────────────────────────────── */
+    #overlay { position: fixed; inset: 0; pointer-events: none; }
+    #overlay > * { pointer-events: auto; }
+
+    /* ─── Screens ─────────────────────────────────────── */
+    .screen {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      background: rgba(9,16,24,0.88);
+    }
+    .screen h1 {
+      font-size: clamp(2rem,6vw,3.5rem); font-weight: 700;
+      letter-spacing: .12em; text-shadow: 0 2px 12px rgba(0,0,0,.8);
+      text-transform: uppercase; text-align: center;
+    }
+    .screen p {
+      font-size: 1rem; color: rgba(255,255,255,.72);
+      text-shadow: 0 1px 4px rgba(0,0,0,.6);
+      text-align: center; max-width: 360px;
+    }
+
+    /* ─── Buttons ─────────────────────────────────────── */
+    .btn {
+      padding: 14px 36px; font-family: inherit;
+      font-size: 1.1rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase;
+      border: 2px solid rgba(255,255,255,.24); border-radius: 6px;
+      background: rgba(255,255,255,.08); color: #fff;
+      cursor: pointer; transition: background .15s, border-color .15s;
+      touch-action: none;
+    }
+    .btn:active, .btn:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.5); }
+    .btn.primary { background: #297BFF; border-color: #297BFF; }
+    .btn.primary:hover, .btn.primary:active { background: #1A5FD4; }
+    .btn:disabled, .btn.disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ─── Start screen ────────────────────────────────── */
+    #screen-start { display: flex; }
+
+    /* ─── Upgrade select screen ───────────────────────── */
+    #screen-upgrade { display: none; }
+    .upgrade-cards {
+      display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+      max-width: 780px; padding: 0 16px;
+    }
+    .upgrade-card {
+      width: 220px; padding: 20px 16px; border-radius: 8px;
+      background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.2);
+      cursor: pointer; transition: background .15s, border-color .15s;
+      touch-action: none; text-align: center;
+    }
+    .upgrade-card:hover, .upgrade-card:active {
+      background: rgba(41,123,255,.25); border-color: #297BFF;
+    }
+    .upgrade-card .card-name {
+      font-size: 1rem; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .upgrade-card .card-cat {
+      font-size: .65rem; letter-spacing: .12em; text-transform: uppercase;
+      color: #FFE28A; margin-bottom: 8px;
+    }
+    .upgrade-card .card-desc {
+      font-size: .8rem; color: rgba(255,255,255,.65); line-height: 1.4;
+    }
+
+    /* ─── Run Over screen ─────────────────────────────── */
+    #screen-run-over { display: none; }
+    .run-stats { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .run-stat { font-size: 1rem; color: rgba(255,255,255,.8); letter-spacing: .05em; }
+    .run-stat span { color: #FFE28A; font-weight: 700; }
+    .meta-unlock {
+      margin: 12px 0; padding: 14px 24px;
+      background: rgba(41,123,255,.18); border: 1px solid rgba(41,123,255,.5);
+      border-radius: 8px; text-align: center; max-width: 320px;
+    }
+    .meta-unlock .meta-label {
+      font-size: .65rem; letter-spacing: .15em; text-transform: uppercase;
+      color: #64B3FF; margin-bottom: 4px;
+    }
+    .meta-unlock .meta-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 2px; }
+    .meta-unlock .meta-desc { font-size: .8rem; color: rgba(255,255,255,.65); }
+
+    /* ─── Run Win screen ──────────────────────────────── */
+    #screen-run-win { display: none; }
+
+    /* ─── HUD ─────────────────────────────────────────── */
+    #hud {
+      position: absolute; inset: 0;
+      display: none; flex-direction: column;
+      pointer-events: none;
+    }
+
+    /* Top bar */
+    #hud-top {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 16px 8px;
+      background: rgba(9,16,24,.72);
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+
+    /* HP icons — top-left */
+    #hp-icons {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .hp-icon {
+      width: 22px; height: 22px;
+      background: #297BFF;
+      clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+      transition: background .15s, opacity .3s;
+    }
+    .hp-icon.lost {
+      background: rgba(255,255,255,.15);
+      opacity: .45;
+    }
+
+    /* Map / objective — top-right */
+    #map-info {
+      text-align: right;
+    }
+    #map-name {
+      font-size: .75rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: #FFE28A;
+      text-shadow: 0 1px 3px rgba(0,0,0,.8);
+    }
+    #objective-status {
+      font-size: .65rem; color: rgba(255,255,255,.6);
+      letter-spacing: .03em; text-shadow: 0 1px 3px rgba(0,0,0,.7);
+      margin-top: 2px;
+    }
+
+    /* Wave / center text */
+    #center-text {
+      position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 1.3rem; font-weight: 700; letter-spacing: .2em;
+      text-transform: uppercase; color: #FFE28A;
+      text-shadow: 0 2px 12px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .3s;
+    }
+
+    /* Near-miss flash */
+    #near-miss-text {
+      position: absolute; top: 20%; left: 50%; transform: translateX(-50%);
+      font-size: .9rem; font-weight: 700; letter-spacing: .25em;
+      text-transform: uppercase; color: #FF8C3A;
+      text-shadow: 0 2px 8px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .15s;
+    }
+
+    /* Bottom controls */
+    #hud-bottom {
+      margin-top: auto;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      padding: 16px; pointer-events: auto;
+    }
+
+    /* Joystick */
+    #joystick {
+      width: 110px; height: 110px;
+      background: rgba(9,16,24,.55);
+      border: 2px solid rgba(255,255,255,.2); border-radius: 50%;
+      position: relative; touch-action: none;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #joystick-knob {
+      width: 44px; height: 44px;
+      background: rgba(255,255,255,.85); border-radius: 50%;
+      position: absolute; transition: transform .1s;
+    }
+
+    /* Fire buttons cluster — bottom right */
+    #fire-cluster {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+
+    /* Secondary fire button — smaller, above primary */
+    #fire-secondary-btn {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: #1A6B2C; border: 3px solid rgba(255,255,255,.25);
+      color: #fff; font-family: inherit; font-size: .6rem;
+      font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      cursor: pointer; touch-action: none;
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 1px; position: relative; overflow: hidden;
+      box-shadow: 0 3px 14px rgba(26,107,44,.45);
+      transition: background .1s, opacity .2s;
+    }
+    #fire-secondary-btn.unlocked { display: flex; }
+    #fire-secondary-btn:active { background: #0F4019; }
+    #fire-secondary-btn.disabled { background: #333; box-shadow: none; opacity: .5; }
+
+    /* Primary fire button — large red */
+    #fire-primary-btn {
+      width: 90px; height: 90px; border-radius: 50%;
+      background: #C0392B; border: 3px solid rgba(255,255,255,.3);
+      color: #fff; font-family: inherit; font-size: .75rem;
+      font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      cursor: pointer; touch-action: none;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px; position: relative; overflow: hidden;
+      box-shadow: 0 4px 20px rgba(192,57,43,.5);
+      transition: background .1s, opacity .2s;
+    }
+    #fire-primary-btn:active  { background: #922B21; }
+    #fire-primary-btn.disabled { background: #555; box-shadow: none; opacity: .5; }
+
+    /* Cooldown arc fills */
+    .cooldown-fill {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 100%;
+      background: rgba(255,255,255,.18);
+      transition: height .1s linear;
+      pointer-events: none;
+    }
+
+    .weapon-label { font-size: .8rem; position: relative; z-index: 1; }
+    .cooldown-label { font-size: .6rem; opacity: .75; position: relative; z-index: 1; }
+
+    /* Keyboard hint */
+    #kb-hint {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      font-size: .65rem; color: rgba(255,255,255,.3);
+      letter-spacing: .05em; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div id="overlay">
+
+    <!-- ── Start ──────────────────────────────────────── -->
+    <div id="screen-start" class="screen">
+      <h1>Drone<br>Strike</h1>
+      <p>You are a combat drone over an active battlefield.<br>Survive. Strike smart. Push the front line forward.</p>
+      <button id="btn-play" class="btn primary">New Run</button>
+    </div>
+
+    <!-- ── Upgrade Select ────────────────────────────── -->
+    <div id="screen-upgrade" class="screen">
+      <h1>Choose Upgrade</h1>
+      <p id="upgrade-map-label" style="color:#FFE28A;font-weight:700;letter-spacing:.1em;"></p>
+      <div class="upgrade-cards" id="upgrade-cards"></div>
+    </div>
+
+    <!-- ── Run Over ──────────────────────────────────── -->
+    <div id="screen-run-over" class="screen">
+      <h1 style="color:#F24848;">Run Over</h1>
+      <div class="run-stats">
+        <div class="run-stat">Maps Cleared: <span id="stat-maps">0</span>/8</div>
+        <div class="run-stat">Total Kills: <span id="stat-kills">0</span></div>
+        <div class="run-stat">Survival Time: <span id="stat-time">0:00</span></div>
+      </div>
+      <div class="meta-unlock" id="meta-unlock-block">
+        <div class="meta-label">Meta Upgrade Unlocked</div>
+        <div class="meta-name" id="meta-unlock-name">—</div>
+        <div class="meta-desc" id="meta-unlock-desc"></div>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <button id="btn-run-over-new" class="btn primary">New Run</button>
+        <button id="btn-run-over-menu" class="btn">Main Menu</button>
+      </div>
+    </div>
+
+    <!-- ── Run Win ───────────────────────────────────── -->
+    <div id="screen-run-win" class="screen">
+      <h1 style="color:#FFE28A;">Campaign<br>Complete</h1>
+      <div class="run-stats">
+        <div class="run-stat">Total Kills: <span id="win-stat-kills">0</span></div>
+        <div class="run-stat">Survival Time: <span id="win-stat-time">0:00</span></div>
+      </div>
+      <div class="meta-unlock" id="win-meta-unlock-block">
+        <div class="meta-label">Meta Upgrade Unlocked</div>
+        <div class="meta-name" id="win-meta-unlock-name">—</div>
+        <div class="meta-desc" id="win-meta-unlock-desc"></div>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <button id="btn-run-win-new" class="btn primary">New Run</button>
+        <button id="btn-run-win-menu" class="btn">Main Menu</button>
+      </div>
+    </div>
+
+    <!-- ── HUD ───────────────────────────────────────── -->
+    <div id="hud">
+
+      <div id="hud-top">
+        <!-- HP icons — top left -->
+        <div id="hp-icons">
+          <div class="hp-icon" id="hp-1"></div>
+          <div class="hp-icon" id="hp-2"></div>
+          <div class="hp-icon" id="hp-3"></div>
+        </div>
+
+        <!-- Map info — top right -->
+        <div id="map-info">
+          <div id="map-name">—</div>
+          <div id="objective-status">—</div>
+        </div>
+      </div>
+
+      <!-- Wave / center notification -->
+      <div id="center-text"></div>
+      <!-- Near-miss flash -->
+      <div id="near-miss-text">NEAR MISS</div>
+
+      <div id="hud-bottom">
+        <div id="joystick">
+          <div id="joystick-knob"></div>
+        </div>
+
+        <!-- Fire buttons -->
+        <div id="fire-cluster">
+          <!-- Secondary (hidden until Dual Weapons upgrade) -->
+          <button id="fire-secondary-btn">
+            <div class="cooldown-fill" id="secondary-cooldown-fill"></div>
+            <span class="weapon-label" id="secondary-weapon-label">EMP</span>
+            <span class="cooldown-label" id="secondary-cooldown-label">READY</span>
+          </button>
+
+          <!-- Primary (always visible) -->
+          <button id="fire-primary-btn">
+            <div class="cooldown-fill" id="primary-cooldown-fill"></div>
+            <span class="weapon-label" id="primary-weapon-label">CANNON</span>
+            <span class="cooldown-label" id="primary-cooldown-label">HOLD</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="kb-hint">WASD · Space = Primary · Shift = Secondary</div>
+    </div>
+
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
