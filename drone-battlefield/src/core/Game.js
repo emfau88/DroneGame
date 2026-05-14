@@ -17,6 +17,8 @@ import { ObjectiveSystem }   from '../systems/ObjectiveSystem.js';
 
 import { HUD }             from '../ui/HUD.js';
 import { MenuManager }     from '../ui/MenuManager.js';
+import { StartScreenFX }   from '../ui/StartScreenFX.js';
+import { t }               from './i18n.js';
 
 const DT_CAP = 0.033;
 
@@ -94,7 +96,7 @@ export class Game {
     this.battle.init(this.renderer.scene);
 
     this.weapons = new WeaponSystem();
-    this.weapons.init(bus);
+    this.weapons.init(bus, this.renderer.scene);
 
     this.effects = new EffectSystem();
     this.effects.init(this.renderer.scene);
@@ -104,6 +106,20 @@ export class Game {
 
     this.menus = new MenuManager();
     this.menus.init(this.state);
+
+    this.startFX = new StartScreenFX();
+    this.startFX.init();
+
+    // Apply i18n to all data-i18n elements on language change
+    const applyI18n = () => {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        const val = t(key);
+        if (val && val !== key) el.textContent = val;
+      });
+    };
+    applyI18n();
+    document.addEventListener('langChanged', applyI18n);
 
     this.roguelite = new RogueliteManager();
     this.roguelite.init(bus);
@@ -121,9 +137,14 @@ export class Game {
       if (unit.team === 'red') {
         this._killCount++;
         this.roguelite.recordKill();
+        // Killstreak / scavenger upgrades
+        if (this._drone && this._drone.alive) {
+          this._drone.onEnemyKill(unit.type);
+        }
       }
     };
     this._onUpgradeSelected = ({ upgradeId }) => this._applyUpgradeAndContinue(upgradeId);
+    this._onUpgradeReroll   = () => this._handleUpgradeReroll();
 
     this._onWeaponImpactShake = ({ type }) => {
       const t = (type || '').toLowerCase();
@@ -137,14 +158,19 @@ export class Game {
       this.renderer.shake(1.5, 0.15);
       this.audio.playNearMiss();
     };
+    this._onBattleDroneHit = () => {
+      this.renderer.shake(6, 0.25);
+    };
 
-    bus.on('menu:newRun',       this._onNewRun);
-    bus.on('menu:mainMenu',     this._onMainMenu);
-    bus.on('drone:dead',        this._onDroneDead);
-    bus.on('unit:died',         this._onUnitDied);
+    bus.on('menu:newRun',          this._onNewRun);
+    bus.on('menu:mainMenu',        this._onMainMenu);
+    bus.on('drone:dead',           this._onDroneDead);
+    bus.on('unit:died',            this._onUnitDied);
     bus.on('upgrade:cardSelected', this._onUpgradeSelected);
-    bus.on('flak:nearMiss',     this._onFlakNearMiss);
-    bus.on('weapon:impact',     this._onWeaponImpactShake);
+    bus.on('upgrade:reroll',       this._onUpgradeReroll);
+    bus.on('flak:nearMiss',        this._onFlakNearMiss);
+    bus.on('weapon:impact',        this._onWeaponImpactShake);
+    bus.on('battle:droneHit',      this._onBattleDroneHit);
 
     document.addEventListener('pointerdown', () => this.audio.resume(), { once: true });
 
@@ -163,9 +189,20 @@ export class Game {
   // ── Run management ────────────────────────────────────────────────────────
 
   _startNewRun() {
+    // Cancel any pending map-end or wave-spawn callbacks from a previous run
+    this._mapEndCallback    = null;
+    this._waveSpawnCallback = null;
+    this._mapEnded          = false;
+    this._cleanupMapListeners();
+
     this.menus.hideAll();
     this.roguelite.startRun();
     this._killCount = 0;
+
+    // Bring state to PLAYING before upgrade select (required for RUN_OVER/RUN_WIN/ENDED)
+    if (!this.state.is('PLAYING') && !this.state.is('MENU')) {
+      this.state.transition('PLAYING');
+    }
 
     // Show first upgrade selection before map 1
     this._showUpgradeSelectForMap(0, () => this._loadMap(0));
@@ -181,9 +218,8 @@ export class Game {
     const template = this._getTemplate(mapIndex);
     const label = template ? `Map ${mapIndex + 1}: ${template.name} — Choose Upgrade` : 'Choose Upgrade';
 
-    // Transition state machine to UPGRADE_SELECT
-    // Valid transitions: PLAYING→UPGRADE_SELECT or MENU→PLAYING→(handle upgrade select as overlay)
-    if (this.state.is('MENU')) {
+    // Ensure we reach UPGRADE_SELECT regardless of current state
+    if (this.state.is('MENU') || this.state.is('RUN_OVER') || this.state.is('RUN_WIN') || this.state.is('ENDED')) {
       this.state.transition('PLAYING');
     }
     if (this.state.is('PLAYING')) {
@@ -191,7 +227,8 @@ export class Game {
     }
 
     this._pendingAfterUpgrade = onDone;
-    this.menus.showUpgradeSelect(label, upgrades);
+    const ownedIds = this.roguelite.currentRun?.activeUpgrades ?? [];
+    this.menus.showUpgradeSelect(label, upgrades, ownedIds);
     this.hud.hide();
   }
 
@@ -206,6 +243,12 @@ export class Game {
     this.menus.hideAll();
 
     if (onDone) onDone();
+  }
+
+  _handleUpgradeReroll() {
+    const newChoices = this.roguelite.getUpgradeChoices();
+    const ownedIds   = this.roguelite.currentRun?.activeUpgrades ?? [];
+    this.menus.rerollCards(newChoices, ownedIds);
   }
 
   _getTemplate(mapIndex) {
@@ -230,6 +273,7 @@ export class Game {
       // Clean up previous
       this.battle.clearAll();
       this.effects.clearAll();
+      this.weapons.clearPending();
       this.world.dispose();
       if (this._drone) { this._drone.destroy(); this._drone = null; }
 
@@ -246,6 +290,7 @@ export class Game {
       // Create drone with roguelite upgrades applied
       this._drone = new Drone(this.renderer.scene);
       this.roguelite.applyAllUpgradesToDrone(this._drone);
+      this._drone.startMap(); // activate blitz timer, reset supply drop
 
       // Update weapon system with current unit list
       this.weapons.setUnits(this.battle.units);
@@ -271,6 +316,12 @@ export class Game {
       );
       this.hud.show();
 
+      // Objective briefing — show what the player must do at map start
+      this.hud.showCenterText(this._getObjectiveText(template.objective), 2.5);
+
+      // Tutorial: flak tooltip on map 1 (one-time, localStorage-gated)
+      if (template.tutorialMap) this.hud.startFlakTooltip();
+
       // Camera
       this.renderer.setCameraTarget(this._drone.position);
       this.renderer.startCinematicIntro?.();
@@ -287,7 +338,7 @@ export class Game {
 
       // Wave 1 intro text
       if (this._totalWaves > 1) {
-        this.hud.showCenterText('WAVE 1', 1.5);
+        this.hud.showCenterText(`${t('center.wave').toUpperCase()} 1`, 1.5);
       }
 
     } catch (err) {
@@ -306,9 +357,9 @@ export class Game {
 
   _getObjectiveText(type) {
     const labels = {
-      destroy_hq:    'DESTROY HQ',
-      hold_zone:     'HOLD THE ZONE',
-      escort_convoy: 'ESCORT CONVOY',
+      destroy_hq:    t('obj.destroyHq').toUpperCase(),
+      hold_zone:     t('obj.holdZone').toUpperCase(),
+      escort_convoy: t('obj.escortConvoy').toUpperCase(),
     };
     return labels[type] || type.toUpperCase();
   }
@@ -371,7 +422,7 @@ export class Game {
     this._mapEnded = true;
     this._cleanupMapListeners();
 
-    this.hud.showCenterText('MAP CLEARED', 1.5);
+    this.hud.showCenterText(t('center.mapCleared').toUpperCase(), 1.5);
     this.roguelite.endMap(true);
     bus.emit('map:complete', { mapId: this._currentTemplate?.id, survived: true });
 
@@ -447,6 +498,7 @@ export class Game {
     if (this._drone && this._drone.alive) {
       this._drone.update(dt, input, this.battle.units);
       this.renderer.setCameraTarget(this._drone.position, this._drone.velocity);
+      this.hud.setDronePosition(this._drone.position);
       this.weapons.setUnits(this.battle.units);
 
       // Update HUD weapon cooldowns
@@ -478,6 +530,14 @@ export class Game {
     // Wave progress check
     this._checkWaveProgress();
 
+    // Sync convoy position to battle system so red units pathfind toward it
+    if (this._objectiveSystem.type === 'escort_convoy') {
+      const convoyPos = this._objectiveSystem.getConvoyPosition();
+      this.battle.setConvoyX(convoyPos ? convoyPos.x : null);
+    } else {
+      this.battle.setConvoyX(null);
+    }
+
     // Objective update
     if (!this._mapEnded) {
       const objResult = this._objectiveSystem.update(dt, this.battle.units);
@@ -490,8 +550,9 @@ export class Game {
       }
     }
 
-    // Fallback: if all red units dead and no objective (shouldn't happen) clear map
-    if (!this._objectiveSystem.type && this._waveNumber >= this._totalWaves) {
+    // All enemies dead = map cleared regardless of objective type
+    // (destroying all defenders is sufficient even if HQ still stands)
+    if (!this._mapEnded) {
       this._checkMapComplete();
     }
 
@@ -521,8 +582,10 @@ export class Game {
     bus.off('drone:dead',           this._onDroneDead);
     bus.off('unit:died',            this._onUnitDied);
     bus.off('upgrade:cardSelected', this._onUpgradeSelected);
+    bus.off('upgrade:reroll',       this._onUpgradeReroll);
     bus.off('flak:nearMiss',        this._onFlakNearMiss);
     bus.off('weapon:impact',        this._onWeaponImpactShake);
+    bus.off('battle:droneHit',      this._onBattleDroneHit);
     this._cleanupMapListeners();
     this._objectiveSystem.destroy();
 

@@ -47,6 +47,8 @@ export class Renderer {
     this._renderer.setSize(container.clientWidth, container.clientHeight);
     this._renderer.shadowMap.enabled = true;
     this._renderer.shadowMap.type = THREE.PCFShadowMap;
+    this._renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this._renderer.toneMappingExposure = 1.1;
     container.appendChild(this._renderer.domElement);
 
     window.addEventListener('resize', () => this.resize());

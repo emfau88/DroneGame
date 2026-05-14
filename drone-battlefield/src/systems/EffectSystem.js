@@ -38,16 +38,21 @@ export class EffectSystem {
     this._muzzleGeo    = new THREE.SphereGeometry(0.2, 6, 4);
 
     this._onImpact = (data) => {
-      // Handle both old uppercase (BOMB/EMP) and new lowercase (bomb/emp/cannon/missile/cluster)
       const t = (data.type || '').toLowerCase();
       if (t === 'bomb' || t === 'cluster') this.playExplosion(data.position);
       if (t === 'emp')  this.playEMP(data.position, data.affectedUnits || []);
       if (t === 'cannon' || t === 'missile') {
-        // Small impact spark at target position
         if (data.position) this._playMuzzleFlash(data.position);
       }
     };
-    this._onFire = ({ position }) => this._playMuzzleFlash(position);
+    this._onFire = (data) => {
+      if (data.team === 'red' && data.type === 'flak' && data.position && data.toPosition) {
+        this._playFlakTracer(data.position, data.toPosition, data.unitType);
+        this._playMuzzleFlash(data.position, data.unitType);
+      } else {
+        this._playMuzzleFlash(data.position);
+      }
+    };
 
     bus.on('weapon:impact', this._onImpact);
     bus.on('unit:fire',     this._onFire);
@@ -116,6 +121,11 @@ export class EffectSystem {
           fx.mesh.material.opacity = t;
           break;
         }
+        case 'tracer': {
+          // Line tracer — fade out
+          fx.mesh.material.opacity = 0.85 * t;
+          break;
+        }
       }
     }
 
@@ -123,12 +133,33 @@ export class EffectSystem {
   }
 
   // ── Muzzle flash ─────────────────────────────────────────────────────────
-  _playMuzzleFlash(position) {
-    const mat  = new THREE.MeshBasicMaterial({ color: 0xFFEE88, transparent: true, opacity: 1 });
+  _playMuzzleFlash(position, unitType) {
+    // Per-unit-type muzzle color
+    const colors = { soldier: 0xFFFF44, rocket: 0xFF8822, flakGun: 0xFF3300, tank: 0xFF5500, commander: 0xFF6622 };
+    const color = (unitType && colors[unitType]) ? colors[unitType] : 0xFFEE88;
+    const mat  = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(this._muzzleGeo, mat);
     mesh.position.copy(position);
     this._scene.add(mesh);
     this._effects.push({ mesh, timer: 0.06, maxTimer: 0.06, type: 'muzzle' });
+  }
+
+  // ── Flak tracer line ──────────────────────────────────────────────────────
+  _playFlakTracer(from, to, unitType) {
+    // Per-type visual config
+    let color, duration;
+    switch (unitType) {
+      case 'soldier':  color = 0xFFFF00; duration = 0.30; break;
+      case 'rocket':   color = 0xFF8822; duration = 0.40; break;
+      case 'flakGun':  color = 0xFF2200; duration = 0.45; break;
+      default:         color = 0xFF5500; duration = 0.35; break; // tank, commander
+    }
+    const points = [from.clone(), to.clone()];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 });
+    const line = new THREE.Line(geo, mat);
+    this._scene.add(line);
+    this._effects.push({ mesh: line, timer: duration, maxTimer: duration, type: 'tracer' });
   }
 
   // ── Explosion ─────────────────────────────────────────────────────────────

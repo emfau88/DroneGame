@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-import { bus } from '../core/EventBus.js';
+import { bus }               from '../core/EventBus.js';
+import { MissileProjectile } from '../entities/MissileProjectile.js';
 
 // Weapon base damage and config from DRONE_STRIKE_REBUILD.md
 const WEAPON_DEFS = {
@@ -46,13 +47,18 @@ const WEAPON_DEFS = {
  */
 export class WeaponSystem {
   constructor() {
-    this._bus   = null;
-    this._units = null; // reference updated each frame by Game
-    this._onDroneFire = null;
+    this._bus     = null;
+    this._scene   = null;
+    this._units   = null;
+    this._onDroneFire     = null;
+    this._pendingCluster  = [];
+    this._pendingChainEMP = [];
+    this._missiles        = []; // active MissileProjectile instances
   }
 
-  init(bus_) {
-    this._bus = bus_;
+  init(bus_, scene) {
+    this._bus   = bus_;
+    this._scene = scene;
 
     this._onDroneFire = (data) => this._handleDroneFire(data);
     bus_.on('weapon:dronefire', this._onDroneFire);
@@ -63,62 +69,112 @@ export class WeaponSystem {
     this._units = units;
   }
 
-  _handleDroneFire({ type, dronePosition, target, weapon, damageMultiplier }) {
+  /** Clear pending cluster/EMP entries and in-flight projectiles between maps. */
+  clearPending() {
+    this._pendingCluster  = [];
+    this._pendingChainEMP = [];
+    for (const m of this._missiles) {
+      if (m.type === 'bullet') {
+        if (this._scene) this._scene.remove(m.mesh);
+        m.geo.dispose(); m.mat.dispose();
+      } else if (m.type === 'missile') {
+        m.projectile.destroy();
+      }
+    }
+    this._missiles = [];
+  }
+
+  _handleDroneFire({ type, dronePosition, target, weapon, damageMultiplier, upgrades }) {
     const def = WEAPON_DEFS[type];
     if (!def) return;
 
-    const dm = damageMultiplier ?? 1;
+    const dm  = damageMultiplier ?? 1;
+    const upg = upgrades || {};
     const units = this._units || [];
 
     switch (type) {
       case 'cannon':
-        this._fireCannon(def, dronePosition, target, dm, units);
+        this._fireCannon(def, dronePosition, target, dm, units, upg);
         break;
       case 'bomb':
-        this._fireBomb(def, dronePosition, dm, units);
+        this._fireBomb(def, dronePosition, dm, units, upg);
         break;
       case 'emp':
-        this._fireEMP(def, dronePosition, units);
+        this._fireEMP(def, dronePosition, units, upg);
         break;
       case 'missile':
-        this._fireMissile(def, dronePosition, target, dm);
+        this._fireMissile(def, dronePosition, target, dm, upg);
         break;
       case 'cluster':
-        this._fireCluster(def, dronePosition, dm, units);
+        this._fireCluster(def, dronePosition, dm, units, upg);
         break;
     }
   }
 
-  _fireCannon(def, dronePos, target, dm, units) {
+  _fireCannon(def, dronePos, target, dm, units, upg) {
     if (!target) return;
-    const dmg = def.damage * dm;
-    const firePos = dronePos.clone();
-    firePos.y = dronePos.y - 0.5;
+    const armorBonus = (upg.armorPiercer && target.type === 'tank') ? 1.3 : 1;
+    const dmg = def.damage * dm * armorBonus;
 
-    bus.emit('unit:fire', { position: firePos, team: 'blue' });
+    // Spawn a visible bullet from drone toward target
+    if (this._scene) {
+      const from = dronePos.clone(); from.y -= 0.5;
+      const to   = target.position.clone(); to.y += 0.5;
+      const dir  = new THREE.Vector3().subVectors(to, from).normalize();
+      const dist = from.distanceTo(to);
+      const speed = 28;
 
-    // Deliver via projectile-like instant hit (cannon is fast tracer)
-    bus.emit('weapon:impact', {
-      type: 'cannon',
-      position: target.position.clone(),
-      affectedUnits: [{ unit: target, damage: dmg }],
-    });
+      // Small bright blue sphere that travels to target
+      const geo  = new THREE.SphereGeometry(0.09, 5, 4);
+      const mat  = new THREE.MeshBasicMaterial({ color: 0x88CCFF });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(from);
+      this._scene.add(mesh);
 
-    target.takeDamage(dmg);
+      this._missiles.push({
+        type: 'bullet',
+        mesh,
+        geo,
+        mat,
+        dir,
+        dist,
+        traveled: 0,
+        speed,
+        onArrive: () => {
+          if (target.alive && target.state !== 'dead') {
+            target.takeDamage(dmg);
+            bus.emit('weapon:impact', {
+              type: 'cannon',
+              position: target.position.clone(),
+              affectedUnits: [{ unit: target, damage: dmg }],
+            });
+          }
+          this._scene.remove(mesh);
+          geo.dispose(); mat.dispose();
+        },
+      });
+    } else {
+      target.takeDamage(dmg);
+      bus.emit('weapon:impact', { type: 'cannon', position: target.position.clone(), affectedUnits: [{ unit: target, damage: dmg }] });
+    }
   }
 
-  _fireBomb(def, dronePos, dm, units) {
+  _fireBomb(def, dronePos, dm, units, upg) {
+    // devastator: +2 radius, +15 damage
+    const radius = def.radius + (upg.devastator ? 2 : 0);
+    const baseDmg = def.damage + (upg.devastator ? 15 : 0);
     const pos = new THREE.Vector3(dronePos.x, 0, dronePos.z);
     const affected = [];
 
     for (const unit of units) {
       if (!unit.alive || unit.state === 'dead') continue;
-      // Bombs only hit ground units (y ~ 0)
       if (unit.position.y > 5) continue;
       const dist = Math.hypot(unit.position.x - pos.x, unit.position.z - pos.z);
-      if (dist > def.radius) continue;
-      const t = 1 - dist / def.radius;
-      const dmg = def.damage * t * dm;
+      if (dist > radius) continue;
+      const t = 1 - dist / radius;
+      // armorPiercer: +30% vs tanks
+      const armorBonus = (upg.armorPiercer && unit.type === 'tank') ? 1.3 : 1;
+      const dmg = baseDmg * t * dm * armorBonus;
       affected.push({ unit, damage: dmg });
     }
 
@@ -129,7 +185,7 @@ export class WeaponSystem {
     }
   }
 
-  _fireEMP(def, dronePos, units) {
+  _fireEMP(def, dronePos, units, upg) {
     const pos = dronePos.clone();
     const affected = [];
 
@@ -146,39 +202,58 @@ export class WeaponSystem {
     for (const { unit } of affected) {
       unit.stun(def.stunDuration);
     }
+
+    // chainEMP: queue a second pulse 1s later
+    if (upg.chainEMP) {
+      this._pendingChainEMP.push({ timer: 1.0, pos: pos.clone(), def, units: [...units] });
+    }
   }
 
-  _fireMissile(def, dronePos, target, dm) {
-    if (!target) return;
-    const dmg = def.damage * dm;
+  _fireMissile(def, dronePos, target, dm, upg) {
+    if (!target || !this._scene) return;
+    // homingMissiles: +20% vs tanks
+    const homingBonus = (upg.homingMissiles && target.type === 'tank') ? 1.2 : 1;
+    // armorPiercer: +30% vs tanks
+    const armorBonus  = (upg.armorPiercer  && target.type === 'tank') ? 1.3 : 1;
+    const dmg = def.damage * dm * homingBonus * armorBonus;
 
-    bus.emit('weapon:impact', {
-      type: 'missile',
-      position: target.position.clone(),
-      affectedUnits: [{ unit: target, damage: dmg }],
-    });
-
-    target.takeDamage(dmg);
+    const from = dronePos.clone(); from.y -= 0.5;
+    const missile = new MissileProjectile(
+      this._scene,
+      from,
+      target,
+      16,
+      0xFF8822,
+      () => {
+        if (target.alive && target.state !== 'dead') {
+          target.takeDamage(dmg);
+          bus.emit('weapon:impact', {
+            type: 'missile',
+            position: target.position.clone(),
+            affectedUnits: [{ unit: target, damage: dmg }],
+          });
+        }
+      },
+    );
+    this._missiles.push({ type: 'missile', projectile: missile });
   }
 
-  _fireCluster(def, dronePos, dm, units) {
+  _fireCluster(def, dronePos, dm, units, upg) {
     const centerPos = new THREE.Vector3(dronePos.x, 0, dronePos.z);
 
-    // Queue staggered submunition explosions — stored for update() to tick
-    if (!this._pendingCluster) this._pendingCluster = [];
+    // clusterPlus: 2 extra submunitions
+    const submunitions = def.submunitions + (upg.clusterPlus ? 2 : 0);
 
-    const submunitions = def.submunitions;
     for (let s = 0; s < submunitions; s++) {
-      const angle = Math.random() * Math.PI * 2;
-      const r = Math.random() * def.radius;
+      const angle = (s / submunitions) * Math.PI * 2 + Math.random() * 0.8;
+      const r = (0.3 + Math.random() * 0.7) * def.radius * 0.6;
       const subPos = new THREE.Vector3(
         centerPos.x + Math.cos(angle) * r,
         0,
         centerPos.z + Math.sin(angle) * r,
       );
-      const subRadius = 2.5;
+      const subRadius = 4.0;
 
-      // Collect affected units for this submunition
       const affected = [];
       for (const unit of units) {
         if (!unit.alive || unit.state === 'dead') continue;
@@ -186,7 +261,8 @@ export class WeaponSystem {
         const dist = Math.hypot(unit.position.x - subPos.x, unit.position.z - subPos.z);
         if (dist > subRadius) continue;
         const t = 1 - dist / subRadius;
-        affected.push({ unit, damage: def.damage * t * dm });
+        const armorBonus = (upg.armorPiercer && unit.type === 'tank') ? 1.3 : 1;
+        affected.push({ unit, damage: def.damage * t * dm * armorBonus });
       }
 
       // Stagger explosion visuals using dt-accumulation in update()
@@ -199,22 +275,68 @@ export class WeaponSystem {
   }
 
   update(dt) {
-    if (!this._pendingCluster || this._pendingCluster.length === 0) return;
-
-    const remaining = [];
-    for (const sub of this._pendingCluster) {
-      sub.timer -= dt;
-      if (sub.timer <= 0) {
-        // Fire this submunition
-        for (const { unit, damage } of sub.affected) {
-          if (unit.alive && unit.state !== 'dead') unit.takeDamage(damage);
+    // Flying projectiles (cannon bullets + missiles)
+    if (this._missiles.length > 0) {
+      const remaining = [];
+      for (const m of this._missiles) {
+        if (m.type === 'bullet') {
+          const step = m.speed * dt;
+          m.traveled += step;
+          m.mesh.position.addScaledVector(m.dir, step);
+          if (m.traveled >= m.dist) {
+            m.onArrive();
+          } else {
+            remaining.push(m);
+          }
+        } else if (m.type === 'missile') {
+          m.projectile.update(dt, this._scene);
+          if (m.projectile.alive) remaining.push(m);
         }
-        bus.emit('weapon:impact', { type: 'bomb', position: sub.pos, affectedUnits: sub.affected });
-      } else {
-        remaining.push(sub);
       }
+      this._missiles = remaining;
     }
-    this._pendingCluster = remaining;
+
+    // Cluster submunition stagger
+    if (this._pendingCluster.length > 0) {
+      const remaining = [];
+      for (const sub of this._pendingCluster) {
+        sub.timer -= dt;
+        if (sub.timer <= 0) {
+          for (const { unit, damage } of sub.affected) {
+            if (unit.alive && unit.state !== 'dead') unit.takeDamage(damage);
+          }
+          bus.emit('weapon:impact', { type: 'bomb', position: sub.pos, affectedUnits: sub.affected });
+        } else {
+          remaining.push(sub);
+        }
+      }
+      this._pendingCluster = remaining;
+    }
+
+    // Chain EMP second pulse
+    if (this._pendingChainEMP.length > 0) {
+      const remaining = [];
+      for (const entry of this._pendingChainEMP) {
+        entry.timer -= dt;
+        if (entry.timer <= 0) {
+          const affected = [];
+          for (const unit of entry.units) {
+            if (!unit.alive || unit.state === 'dead') continue;
+            if (unit.position.y > 5) continue;
+            const dist = Math.hypot(unit.position.x - entry.pos.x, unit.position.z - entry.pos.z);
+            if (dist > entry.def.radius) continue;
+            affected.push({ unit, damage: 0 });
+          }
+          bus.emit('weapon:impact', { type: 'emp', position: entry.pos.clone(), affectedUnits: affected });
+          for (const { unit } of affected) {
+            if (unit.alive && unit.state !== 'dead') unit.stun(entry.def.stunDuration);
+          }
+        } else {
+          remaining.push(entry);
+        }
+      }
+      this._pendingChainEMP = remaining;
+    }
   }
 
   getWeaponDef(type) {

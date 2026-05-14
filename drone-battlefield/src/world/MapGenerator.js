@@ -24,8 +24,8 @@ export class MapGenerator {
     const units = [];
     const waves = [];
 
-    // Blue ally units (fixed composition — decent force)
-    const blueUnits = this._generateBlueUnits();
+    // Blue ally units — use template blueForce if defined, else default
+    const blueUnits = this._generateBlueUnits(template.blueForce);
     units.push(...blueUnits);
 
     // Red enemy units split across waves
@@ -46,19 +46,29 @@ export class MapGenerator {
     };
   }
 
-  _generateBlueUnits() {
+  _generateBlueUnits(blueForce) {
     const units = [];
-    // Consistent blue force: 3 tanks, 12 soldiers, 2 rocket soldiers
+    const bf = blueForce || {};
+
+    const [tankMin, tankMax]     = bf.tank    || [2, 3];
+    const [soldierMin, soldierMax] = bf.soldier || [8, 12];
+    const [rocketMin, rocketMax]  = bf.rocket  || [1, 2];
+
+    const tankCount    = randInt(tankMin, tankMax);
+    const soldierCount = randInt(soldierMin, soldierMax);
+    const rocketCount  = randInt(rocketMin, rocketMax);
+
     const tankLanes = [-8, 0, 8];
-    for (const lane of tankLanes) {
+    for (let i = 0; i < tankCount; i++) {
+      const lane = tankLanes[i % tankLanes.length];
       units.push({ type: 'tank', team: 'blue', lane, x: ALLY_X_START - randRange(0, 4) });
     }
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < soldierCount; i++) {
       const lane = LANES[i % LANES.length];
       units.push({ type: 'soldier', team: 'blue', lane, x: ALLY_X_START - randRange(2, 8) });
     }
-    for (let i = 0; i < 2; i++) {
-      const lane = LANES[1 + i * 2];
+    for (let i = 0; i < rocketCount; i++) {
+      const lane = LANES[1 + (i % 2) * 2];
       units.push({ type: 'rocket', team: 'blue', lane, x: ALLY_X_START - randRange(0, 4) });
     }
     return units;
@@ -68,8 +78,8 @@ export class MapGenerator {
     const units = [];
     const e = template.enemies;
 
-    // Scale enemy count based on wave number (later waves are stronger)
-    const waveScale = 0.6 + (waveNumber / totalWaves) * 0.8;
+    // Scale enemy count: early waves slightly lighter, final wave is exactly the template value
+    const waveScale = 0.7 + (waveNumber / totalWaves) * 0.3;
 
     const count = (type) => {
       const [min, max] = e[type] || [0, 0];
@@ -106,12 +116,15 @@ export class MapGenerator {
     for (let i = 0; i < flakCount; i++) {
       const lane = LANES[randInt(0, LANES.length - 1)];
       const x = ENEMY_X_START + 8 + randRange(0, 8);
-      units.push({ type: 'flakGun', team: 'red', lane, x });
+      const flakConfig = { type: 'flakGun', team: 'red', lane, x };
+      // Tutorial map: slightly reduced range (still accounts for drone altitude of 12)
+      if (template.tutorialMap) flakConfig.aaRangeOverride = 16;
+      units.push(flakConfig);
     }
 
-    // Commanders — deeper back
+    // Commanders — deeper back, random lane
     for (let i = 0; i < commanderCount; i++) {
-      const lane = LANES[2]; // center
+      const lane = LANES[randInt(0, LANES.length - 1)];
       units.push({ type: 'commander', team: 'red', lane, x: ENEMY_X_START + 10 + randRange(0, 5) });
     }
 

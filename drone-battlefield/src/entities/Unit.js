@@ -24,19 +24,19 @@ const GEO = {
 // aaRange: 0 = cannot shoot drone. aaCooldown in seconds.
 const UNIT_STATS = {
   soldier: {
-    hp: 15, damage: 2.1, speed: 2.05, range: 5.2, cooldown: 0.75,
-    aaRange: 0, aaDamage: 0, aaCooldown: 0, aaLockTime: 0,
+    hp: 12, damage: 2.1, speed: 2.05, range: 5.2, cooldown: 0.75,
+    aaRange: 8, aaDamage: 1, aaCooldown: 4.0, aaLockTime: 0,
   },
   tank: {
-    hp: 60, damage: 5.2, speed: 1.2, range: 5.2, cooldown: 1.8,
-    aaRange: 8, aaDamage: 1, aaCooldown: 4.0, aaLockTime: 0.3,
+    hp: 45, damage: 5.2, speed: 1.2, range: 5.2, cooldown: 1.8,
+    aaRange: 8, aaDamage: 1, aaCooldown: 2.8, aaLockTime: 0.3,
   },
   rocket: {
-    hp: 22, damage: 4.8, speed: 1.6, range: 7.5, cooldown: 1.25,
-    aaRange: 10, aaDamage: 1, aaCooldown: 3.5, aaLockTime: 0.5,
+    hp: 18, damage: 4.8, speed: 1.6, range: 7.5, cooldown: 1.25,
+    aaRange: 10, aaDamage: 1, aaCooldown: 2.5, aaLockTime: 0.5,
   },
   commander: {
-    hp: 35, damage: 3.0, speed: 1.8, range: 6.0, cooldown: 1.8,
+    hp: 28, damage: 3.0, speed: 1.8, range: 6.0, cooldown: 1.8,
     aaRange: 6, aaDamage: 1, aaCooldown: 5.0, aaLockTime: 0.8,
   },
   flakGun: {
@@ -60,8 +60,8 @@ const HIT_COLOR   = 0xFFFFFF;
 const EMP_COLOR   = 0x65D8FF;
 const HIT_DURATION = 0.08;
 
-// Red laser targeting indicator color for flak guns
 const LASER_COLOR = 0xFF2222;
+const _laserMat = new THREE.LineBasicMaterial({ color: LASER_COLOR, transparent: true, opacity: 0.8 });
 
 /**
  * Unit — soldier, tank, rocket, commander, flakGun, or enemyDrone.
@@ -83,8 +83,8 @@ export class Unit extends Entity {
     this.range      = base.range;
     this.cooldown   = base.cooldown;
 
-    // Anti-air stats
-    this.aaRange    = base.aaRange;
+    // Anti-air stats (config can override for tutorial/difficulty purposes)
+    this.aaRange    = config.aaRangeOverride ?? base.aaRange;
     this.aaDamage   = base.aaDamage;
     this.aaCooldown = base.aaCooldown;
     this.aaLockTime = base.aaLockTime;
@@ -102,6 +102,8 @@ export class Unit extends Entity {
     this._meshes   = [];
     this._barrel   = null; // flak gun barrel (rotates to track drone)
     this._laserLine = null; // targeting laser (flak gun)
+    this._turretMesh = null; // tank turret — detaches on death
+    this._turretVel  = null; // turret arc velocity
 
     this._buildMesh();
 
@@ -110,70 +112,76 @@ export class Unit extends Entity {
 
   _buildMesh() {
     const color = this.team === 'blue' ? BLUE_COLOR : RED_COLOR;
-    const makeMat = () => new THREE.MeshStandardMaterial({ color });
+    // Infantry: matte cloth-like. Vehicles: slightly metallic.
+    const makeMat = (rough = 0.82, metal = 0.05) =>
+      new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
 
     switch (this.type) {
       case 'soldier':
       case 'medic': {
-        const mesh = new THREE.Mesh(GEO.soldier, makeMat());
+        const mesh = new THREE.Mesh(GEO.soldier, makeMat(0.85, 0.0));
         mesh.castShadow = true; mesh.receiveShadow = true;
         mesh.position.y = 0.7;
         this.group.add(mesh); this._meshes.push(mesh);
         break;
       }
       case 'tank': {
-        const body = new THREE.Mesh(GEO.tank, makeMat());
+        const body = new THREE.Mesh(GEO.tank, makeMat(0.6, 0.35));
         body.castShadow = true; body.receiveShadow = true;
         body.position.y = 0.4;
         this.group.add(body); this._meshes.push(body);
 
-        const turret = new THREE.Mesh(GEO.tankTurret, makeMat());
-        turret.castShadow = true; turret.position.set(0, 0.9, 0);
+        const turret = new THREE.Mesh(GEO.tankTurret, makeMat(0.55, 0.4));
+        turret.castShadow = true; turret.receiveShadow = true;
+        turret.position.set(0, 0.9, 0);
         this.group.add(turret); this._meshes.push(turret);
+        this._turretMesh = turret;
 
-        const barrel = new THREE.Mesh(GEO.tankBarrel, makeMat());
+        const barrel = new THREE.Mesh(GEO.tankBarrel, makeMat(0.45, 0.6));
+        barrel.castShadow = true;
         barrel.rotation.x = Math.PI / 2;
         barrel.position.set(0, 0.9, -0.6);
         this.group.add(barrel); this._meshes.push(barrel);
         break;
       }
       case 'rocket': {
-        const body = new THREE.Mesh(GEO.rocket, makeMat());
+        const body = new THREE.Mesh(GEO.rocket, makeMat(0.8, 0.05));
         body.castShadow = true; body.receiveShadow = true;
         body.position.y = 0.7;
         this.group.add(body); this._meshes.push(body);
 
-        const pod = new THREE.Mesh(GEO.rocketPod, makeMat());
+        const pod = new THREE.Mesh(GEO.rocketPod, makeMat(0.5, 0.5));
+        pod.castShadow = true;
         pod.rotation.z = THREE.MathUtils.degToRad(30);
         pod.position.set(0.35, 1.1, 0);
         this.group.add(pod); this._meshes.push(pod);
         break;
       }
       case 'commander': {
-        const body = new THREE.Mesh(GEO.commander, makeMat());
+        const body = new THREE.Mesh(GEO.commander, makeMat(0.8, 0.05));
         body.castShadow = true; body.receiveShadow = true;
         body.position.y = 0.8;
         this.group.add(body); this._meshes.push(body);
 
-        const antenna = new THREE.Mesh(GEO.cmdAntenna, makeMat());
+        const antenna = new THREE.Mesh(GEO.cmdAntenna, makeMat(0.4, 0.7));
+        antenna.castShadow = true;
         antenna.position.set(0, 1.7, 0);
         this.group.add(antenna); this._meshes.push(antenna);
         break;
       }
       case 'flakGun': {
-        // Static dark base + rotatable barrel
-        const base = new THREE.Mesh(GEO.flakBase, new THREE.MeshStandardMaterial({ color: 0x333340 }));
+        const base = new THREE.Mesh(GEO.flakBase, new THREE.MeshStandardMaterial({ color: 0x333340, roughness: 0.6, metalness: 0.55 }));
         base.castShadow = true; base.receiveShadow = true;
         base.position.y = 0.25;
         this.group.add(base); this._meshes.push(base);
 
-        // Pivot for barrel rotation
         const pivot = new THREE.Object3D();
         pivot.position.y = 0.6;
         this.group.add(pivot);
 
-        const barrel = new THREE.Mesh(GEO.flakBarrel, new THREE.MeshStandardMaterial({ color: 0x222230 }));
-        barrel.rotation.x = -Math.PI / 4; // angled upward by default
+        const barrel = new THREE.Mesh(GEO.flakBarrel, new THREE.MeshStandardMaterial({ color: 0x222230, roughness: 0.4, metalness: 0.75 }));
+        barrel.castShadow = true;
+        barrel.rotation.x = -Math.PI / 4;
         barrel.position.y = 0.5;
         pivot.add(barrel);
         this._barrel = pivot;
@@ -181,14 +189,14 @@ export class Unit extends Entity {
         break;
       }
       case 'enemyDrone': {
-        // Smaller red drone
-        const body = new THREE.Mesh(GEO.eDroneBody, new THREE.MeshStandardMaterial({ color: 0xC22020 }));
-        body.castShadow = true;
+        const body = new THREE.Mesh(GEO.eDroneBody, new THREE.MeshStandardMaterial({ color: 0xC22020, roughness: 0.45, metalness: 0.6 }));
+        body.castShadow = true; body.receiveShadow = true;
         this.group.add(body); this._meshes.push(body);
 
         const armAngles = [45, -45, 135, -135];
         for (const angle of armAngles) {
-          const arm = new THREE.Mesh(GEO.eDroneArm, new THREE.MeshStandardMaterial({ color: 0xA01818 }));
+          const arm = new THREE.Mesh(GEO.eDroneArm, new THREE.MeshStandardMaterial({ color: 0xA01818, roughness: 0.5, metalness: 0.55 }));
+          arm.castShadow = true;
           arm.rotation.y = THREE.MathUtils.degToRad(angle);
           arm.position.set(
             Math.cos(THREE.MathUtils.degToRad(angle)) * 0.38,
@@ -219,6 +227,37 @@ export class Unit extends Entity {
   }
 
   /**
+   * Show/hide the red targeting laser from flak gun barrel toward drone.
+   * @param {boolean} active
+   * @param {THREE.Vector3} [targetPos]
+   */
+  setLaserActive(active, targetPos) {
+    if (!active) {
+      if (this._laserLine) {
+        this.group.remove(this._laserLine);
+        this._laserLine.geometry.dispose();
+        this._laserLine = null;
+      }
+      return;
+    }
+    if (!targetPos) return;
+
+    // Rebuild line from barrel tip to drone
+    const from = new THREE.Vector3(0, 0.6, 0); // local barrel position
+    const toLocal = this.group.worldToLocal(targetPos.clone());
+    const points = [from, toLocal];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+
+    if (this._laserLine) {
+      this._laserLine.geometry.dispose();
+      this._laserLine.geometry = geo;
+    } else {
+      this._laserLine = new THREE.Line(geo, _laserMat.clone());
+      this.group.add(this._laserLine);
+    }
+  }
+
+  /**
    * Apply damage. Emits unit:damaged and unit:died.
    * @param {number} amount
    */
@@ -240,6 +279,16 @@ export class Unit extends Entity {
     if (this.state === 'dead') return;
     this.state = 'dead';
     this._deathTimer = 0;
+
+    // Tank: detach turret and give it an arc velocity
+    if (this._turretMesh) {
+      this._turretVel = new THREE.Vector3(
+        (Math.random() - 0.5) * 4,
+        5 + Math.random() * 3,
+        (Math.random() - 0.5) * 4,
+      );
+    }
+
     bus.emit('unit:died', { unit: this, team: this.team });
   }
 
@@ -257,10 +306,29 @@ export class Unit extends Entity {
     }
   }
 
+  setAAGlow(active) {
+    if (this._hitTimer > 0 || this._empTimer > 0) return; // don't override hit/emp flash
+    const hex = active ? 0x330000 : 0x000000;
+    for (const mesh of this._meshes) {
+      if (mesh.material?.emissive) mesh.material.emissive.setHex(hex);
+    }
+  }
+
   _playDeathAnimation(dt) {
     this._deathTimer += dt;
     const t = Math.min(1, this._deathTimer / 0.4);
     this.group.rotation.z = (Math.PI / 2) * t;
+
+    // Tank turret detach arc
+    if (this._turretMesh && this._turretVel) {
+      this._turretMesh.position.x += this._turretVel.x * dt;
+      this._turretMesh.position.y += this._turretVel.y * dt;
+      this._turretMesh.position.z += this._turretVel.z * dt;
+      this._turretVel.y -= 18 * dt; // gravity
+      this._turretMesh.rotation.x += dt * 6;
+      this._turretMesh.rotation.z += dt * 4;
+    }
+
     for (const mesh of this._meshes) {
       if (!mesh.material) continue;
       mesh.material.transparent = true;
@@ -300,7 +368,6 @@ export class Unit extends Entity {
     }
 
     if (this._cooldownTimer > 0) this._cooldownTimer -= dt;
-    if (this._aaCooldownTimer > 0) this._aaCooldownTimer -= dt;
   }
 
   canFire() {

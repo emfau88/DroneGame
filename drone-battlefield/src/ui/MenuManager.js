@@ -1,8 +1,8 @@
 import { bus } from '../core/EventBus.js';
+import { t }   from '../core/i18n.js';
 
 /**
- * MenuManager — start screen, upgrade select screen, run-over screen, run-win screen.
- * Old level-select screen is removed; replaced by roguelite run flow.
+ * MenuManager — start, upgrade select, run-over, run-win screens.
  * Emits: menu:newRun, menu:mainMenu, upgrade:cardSelected
  */
 export class MenuManager {
@@ -14,14 +14,11 @@ export class MenuManager {
     this._runOverScreenEl  = null;
     this._runWinScreenEl   = null;
 
-    // Start screen
     this._playBtnEl = null;
 
-    // Upgrade screen
     this._upgradeMapLabelEl = null;
     this._upgradeCardsEl    = null;
 
-    // Run-over screen
     this._statMapsEl    = null;
     this._statKillsEl   = null;
     this._statTimeEl    = null;
@@ -31,7 +28,6 @@ export class MenuManager {
     this._runOverNewBtn = null;
     this._runOverMenuBtn = null;
 
-    // Run-win screen
     this._winStatKillsEl = null;
     this._winStatTimeEl  = null;
     this._winMetaBlockEl = null;
@@ -39,6 +35,13 @@ export class MenuManager {
     this._winMetaDescEl  = null;
     this._runWinNewBtn   = null;
     this._runWinMenuBtn  = null;
+
+    // Reroll state — one reroll per upgrade screen
+    this._rerollUsed = false;
+    this._currentUpgradeChoices = null;
+    this._currentOwnedIds = null;
+    this._currentOnDone = null;
+    this._currentMapLabel = null;
   }
 
   init(state) {
@@ -114,29 +117,54 @@ export class MenuManager {
     }
   }
 
-  /** Show upgrade selection with map context label and 3 upgrade cards. */
-  showUpgradeSelect(mapLabel, upgrades) {
+  /**
+   * Show upgrade selection.
+   * @param {string} mapLabel
+   * @param {import('../data/upgrades.js').Upgrade[]} upgrades - the 3 choices
+   * @param {string[]} ownedIds - upgrade IDs already active this run
+   */
+  showUpgradeSelect(mapLabel, upgrades, ownedIds = []) {
+    this._rerollUsed = false;
+    this._currentUpgradeChoices = upgrades;
+    this._currentOwnedIds       = ownedIds;
+    this._currentMapLabel       = mapLabel;
+
     this.hideAll();
     if (this._upgradeMapLabelEl) {
       this._upgradeMapLabelEl.textContent = mapLabel || '';
     }
-    if (this._upgradeCardsEl) {
-      this._upgradeCardsEl.innerHTML = '';
-      for (const upgrade of upgrades) {
-        const card = this._buildUpgradeCard(upgrade);
-        this._upgradeCardsEl.appendChild(card);
-      }
-    }
+    this._renderUpgradeCards(upgrades, ownedIds);
     if (this._upgradeScreenEl) this._upgradeScreenEl.style.display = 'flex';
   }
 
-  _buildUpgradeCard(upgrade) {
+  _renderUpgradeCards(upgrades, ownedIds) {
+    if (!this._upgradeCardsEl) return;
+    this._upgradeCardsEl.innerHTML = '';
+
+    const ownedSet = new Set(ownedIds);
+    const allOwned = upgrades.every(u => ownedSet.has(u.id));
+
+    for (const upgrade of upgrades) {
+      const card = this._buildUpgradeCard(upgrade, ownedSet.has(upgrade.id));
+      this._upgradeCardsEl.appendChild(card);
+    }
+
+    // Reroll option: show if all 3 are already owned and reroll not yet used
+    if (allOwned && !this._rerollUsed) {
+      const rerollCard = this._buildRerollCard();
+      this._upgradeCardsEl.appendChild(rerollCard);
+    }
+  }
+
+  _buildUpgradeCard(upgrade, isActive) {
     const div = document.createElement('div');
     div.className = 'upgrade-card';
 
+    if (isActive) div.classList.add('upgrade-card--active');
+
     const name = document.createElement('div');
     name.className = 'card-name';
-    name.textContent = upgrade.name;
+    name.textContent = t(`upg.${upgrade.id}.name`) || upgrade.name;
 
     const cat = document.createElement('div');
     cat.className = 'card-cat';
@@ -144,11 +172,18 @@ export class MenuManager {
 
     const desc = document.createElement('div');
     desc.className = 'card-desc';
-    desc.textContent = upgrade.description;
+    desc.textContent = t(`upg.${upgrade.id}.desc`) || upgrade.description;
 
     div.appendChild(name);
     div.appendChild(cat);
     div.appendChild(desc);
+
+    if (isActive) {
+      const badge = document.createElement('div');
+      badge.className = 'card-active-badge';
+      badge.textContent = t('upgrade.active') || 'ACTIVE';
+      div.appendChild(badge);
+    }
 
     div.addEventListener('pointerdown', () => {
       bus.emit('ui:click');
@@ -158,7 +193,36 @@ export class MenuManager {
     return div;
   }
 
-  /** Show run-over screen with stats and optional meta unlock. */
+  _buildRerollCard() {
+    const div = document.createElement('div');
+    div.className = 'upgrade-card upgrade-card--reroll';
+
+    const name = document.createElement('div');
+    name.className = 'card-name';
+    name.textContent = t('upgrade.reroll');
+
+    const desc = document.createElement('div');
+    desc.className = 'card-desc';
+    desc.textContent = t('upgrade.rerollDesc') || 'Draw 3 new choices. Once per upgrade screen.';
+
+    div.appendChild(name);
+    div.appendChild(desc);
+
+    div.addEventListener('pointerdown', () => {
+      bus.emit('ui:click');
+      bus.emit('upgrade:reroll');
+    });
+
+    return div;
+  }
+
+  /** Called by Game when a reroll is requested. */
+  rerollCards(newUpgrades, ownedIds) {
+    this._rerollUsed = true;
+    this._currentUpgradeChoices = newUpgrades;
+    this._renderUpgradeCards(newUpgrades, ownedIds);
+  }
+
   showRunOver(stats, metaUpgrade) {
     this.hideAll();
 
@@ -184,7 +248,6 @@ export class MenuManager {
     if (this._runOverScreenEl) this._runOverScreenEl.style.display = 'flex';
   }
 
-  /** Show run-win screen with stats and optional meta unlock. */
   showRunWin(stats, metaUpgrade) {
     this.hideAll();
 

@@ -4,7 +4,7 @@ import { Entity } from './Entity.js';
 import { bus } from '../core/EventBus.js';
 import { clamp, lerp } from '../utils/math.js';
 
-const DRONE_SPEED   = 18;
+const DRONE_SPEED   = 14;
 // 0.05s acceleration ramp — barely perceptible per DRONE_STRIKE_REBUILD.md
 const INERTIA       = 0.05;
 const TILT_X_MAX    = THREE.MathUtils.degToRad(15);
@@ -20,11 +20,21 @@ const SHIELD_DURATION = 1.5;
 const FLASH_INTERVAL  = 0.08;
 
 // Shared drone geometry — built once
-const _bodyGeo    = new THREE.BoxGeometry(0.9, 0.22, 0.9);
-const _armGeo     = new THREE.BoxGeometry(1.2, 0.12, 0.12);
-const _rotorGeo   = new THREE.CylinderGeometry(0.28, 0.28, 0.04, 8);
-const _droneMat   = new THREE.MeshStandardMaterial({ color: 0x222233 });
-const _rotorMat   = new THREE.MeshStandardMaterial({ color: 0x444455, transparent: true, opacity: 0.7 });
+const _bodyGeo      = new THREE.CylinderGeometry(0.38, 0.44, 0.18, 10);  // flat hex body
+const _bodyTopGeo   = new THREE.CylinderGeometry(0.22, 0.38, 0.10, 10);  // tapered top dome
+const _cameraGeo    = new THREE.SphereGeometry(0.10, 8, 6);               // camera ball underneath
+const _armGeo       = new THREE.BoxGeometry(1.0, 0.07, 0.09);             // slim arm
+const _motorGeo     = new THREE.CylinderGeometry(0.11, 0.11, 0.14, 8);   // motor housing at arm tip
+const _rotorGeo     = new THREE.CylinderGeometry(0.32, 0.32, 0.025, 16); // rotor disk — 16 sides = smooth circle
+const _ledGeo       = new THREE.SphereGeometry(0.045, 5, 4);              // status LED
+
+const _bodyMat    = new THREE.MeshStandardMaterial({ color: 0x1A1A2A, roughness: 0.55, metalness: 0.6 });
+const _accentMat  = new THREE.MeshStandardMaterial({ color: 0x2A2A3E, roughness: 0.45, metalness: 0.7 });
+const _motorMat   = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.4,  metalness: 0.8 });
+const _rotorMat   = new THREE.MeshStandardMaterial({ color: 0x333348, roughness: 0.5,  metalness: 0.3, transparent: true, opacity: 0.82 });
+const _cameraMatD = new THREE.MeshStandardMaterial({ color: 0x0A0A14, roughness: 0.1,  metalness: 0.9 });
+const _ledBlueMat = new THREE.MeshBasicMaterial({ color: 0x44AAFF });
+const _ledRedMat  = new THREE.MeshBasicMaterial({ color: 0xFF3322 });
 
 // Weapon configuration objects — stats from DRONE_STRIKE_REBUILD.md
 const WEAPON_CONFIGS = {
@@ -99,6 +109,18 @@ export class Drone extends Entity {
     this.speedMultiplier  = 1.0;
     this.cooldownMultiplier = 1.0;
 
+    // Upgrade state (reset by RogueliteManager.applyAllUpgradesToDrone)
+    this._upgrades = {};
+    this._killstreakCount = 0;
+    this._killstreakReady = false;
+    this._overchargeTimer = undefined;
+    this._overchargeReady = false;
+    this._evasiveBurstTimer = 0;       // speed boost duration remaining
+    this._shieldDroneCooldown = 0;     // time until shield drone is ready again
+    this._blitzTimer = 0;              // countdown from 10s at map start
+    this._supplyDropUsed = false;
+    this._supplyDropHoldTimer = 0;     // how long both buttons held
+
     // Death animation
     this._dying = false;
     this._deathTimer = 0;
@@ -110,28 +132,83 @@ export class Drone extends Entity {
     this.position.set(0, DRONE_HEIGHT, 0);
   }
 
+  /** Called by Game at map start to activate blitz mode timer. */
+  startMap() {
+    if (this._upgrades?.blitzMode) this._blitzTimer = 10;
+    if (this._upgrades?.supplyDrop) this._supplyDropUsed = false;
+  }
+
+  /** Called by Game when a red unit dies, to handle killstreak. */
+  onEnemyKill(unitType) {
+    if (!this._upgrades?.killstreak) return;
+    this._killstreakCount++;
+    if (this._killstreakCount >= 5 && !this._killstreakReady) {
+      this._killstreakReady = true;
+      this._killstreakCount = 0;
+      bus.emit('drone:killstreakReady', {});
+    }
+    if (this._upgrades?.scavenger && unitType === 'commander') {
+      this.primaryCooldown   = Math.max(0, this.primaryCooldown   - 1.0);
+      this.secondaryCooldown = Math.max(0, this.secondaryCooldown - 1.0);
+      bus.emit('drone:scavenger', {});
+    }
+  }
+
   _buildMesh() {
-    const body = new THREE.Mesh(_bodyGeo, _droneMat.clone());
+    // ── Central body ────────────────────────────────────────────────────────
+    const body = new THREE.Mesh(_bodyGeo, _bodyMat.clone());
     body.castShadow = true;
+    body.position.y = 0;
     this.group.add(body);
     this._allMeshes.push(body);
 
+    const bodyTop = new THREE.Mesh(_bodyTopGeo, _accentMat.clone());
+    bodyTop.position.y = 0.14;
+    bodyTop.castShadow = true;
+    this.group.add(bodyTop);
+    this._allMeshes.push(bodyTop);
+
+    // Camera ball underneath
+    const camera = new THREE.Mesh(_cameraGeo, _cameraMatD.clone());
+    camera.position.y = -0.16;
+    this.group.add(camera);
+    this._allMeshes.push(camera);
+
+    // Front blue LED (facing -Z = forward)
+    const ledFront = new THREE.Mesh(_ledGeo, _ledBlueMat);
+    ledFront.position.set(0, 0.05, -0.38);
+    this.group.add(ledFront);
+
+    // Rear red LED
+    const ledBack = new THREE.Mesh(_ledGeo, _ledRedMat);
+    ledBack.position.set(0, 0.05, 0.38);
+    this.group.add(ledBack);
+
+    // ── Arms + motors + rotors ───────────────────────────────────────────────
     const armAngles = [45, -45, 135, -135];
     for (const angle of armAngles) {
-      const arm = new THREE.Mesh(_armGeo, _droneMat.clone());
-      arm.rotation.y = THREE.MathUtils.degToRad(angle);
-      arm.position.set(
-        Math.cos(THREE.MathUtils.degToRad(angle)) * 0.55,
-        0,
-        Math.sin(THREE.MathUtils.degToRad(angle)) * 0.55,
-      );
+      const rad = THREE.MathUtils.degToRad(angle);
+      const tipX = Math.cos(rad) * 0.72;
+      const tipZ = Math.sin(rad) * 0.72;
+
+      // Arm
+      const arm = new THREE.Mesh(_armGeo, _accentMat.clone());
+      arm.rotation.y = rad;
+      arm.position.set(tipX * 0.5, 0, tipZ * 0.5);
       arm.castShadow = true;
       this.group.add(arm);
       this._allMeshes.push(arm);
 
+      // Motor housing at tip
+      const motor = new THREE.Mesh(_motorGeo, _motorMat.clone());
+      motor.position.set(tipX, 0.0, tipZ);
+      motor.castShadow = true;
+      this.group.add(motor);
+      this._allMeshes.push(motor);
+
+      // Rotor disk above motor
       const rotor = new THREE.Mesh(_rotorGeo, _rotorMat.clone());
-      rotor.position.copy(arm.position);
-      rotor.position.y = 0.06;
+      rotor.position.set(tipX, 0.10, tipZ);
       this.group.add(rotor);
       this._rotors.push(rotor);
     }
@@ -151,6 +228,7 @@ export class Drone extends Entity {
 
     this._updateMovement(dt, input);
     this._updateShield(dt);
+    this._updateUpgradeTimers(dt, input);
     this._updateWeapons(dt, input, units);
 
     // Spin rotors
@@ -159,8 +237,73 @@ export class Drone extends Entity {
     }
   }
 
+  _updateUpgradeTimers(dt, input) {
+    // Overcharge: countdown to ready
+    if (this._upgrades?.overcharge && !this._overchargeReady) {
+      if (this._overchargeTimer === undefined) this._overchargeTimer = 20;
+      this._overchargeTimer -= dt;
+      if (this._overchargeTimer <= 0) {
+        this._overchargeReady = true;
+        this._overchargeTimer = undefined;
+        bus.emit('drone:overchargeReady', {});
+      }
+    }
+
+    // Shield drone: recharge timer
+    if (this._upgrades?.shieldDrone) {
+      if (this._shieldDroneCooldown > 0) {
+        this._shieldDroneCooldown -= dt;
+      }
+    }
+
+    // Evasive maneuver: burn down speed burst
+    if (this._evasiveBurstTimer > 0) {
+      this._evasiveBurstTimer -= dt;
+      if (this._evasiveBurstTimer <= 0) {
+        this._evasiveBurstTimer = 0;
+        this._evasiveActive = false;
+      }
+    }
+
+    // Blitz mode: reduce cooldown multiplier for first 10s of map
+    if (this._blitzTimer > 0) {
+      this._blitzTimer -= dt;
+      if (this._blitzTimer <= 0) {
+        this._blitzTimer = 0;
+        // Restore normal cooldown (blitz already factored into multiplier in _effectiveCooldownMultiplier)
+      }
+    }
+
+    // Supply drop: hold both buttons for 1.5s to restore 1 HP
+    if (this._upgrades?.supplyDrop && !this._supplyDropUsed) {
+      if (input.firePrimary && input.fireSecondary) {
+        this._supplyDropHoldTimer += dt;
+        if (this._supplyDropHoldTimer >= 1.5) {
+          this._supplyDropUsed = true;
+          this._supplyDropHoldTimer = 0;
+          this.hp = Math.min(this.hp + 1, this.maxHp);
+          bus.emit('drone:supplyDrop', { hp: this.hp });
+        }
+      } else {
+        this._supplyDropHoldTimer = 0;
+      }
+    }
+  }
+
+  _effectiveCooldownMultiplier() {
+    let m = this.cooldownMultiplier;
+    if (this._blitzTimer > 0) m *= 0.5;
+    return m;
+  }
+
+  _effectiveSpeedMultiplier() {
+    let m = this.speedMultiplier;
+    if (this._evasiveActive) m *= 1.8;
+    return m;
+  }
+
   _updateMovement(dt, input) {
-    const speed = DRONE_SPEED * this.speedMultiplier;
+    const speed = DRONE_SPEED * this._effectiveSpeedMultiplier();
     const alpha = clamp(dt / INERTIA, 0, 1);
 
     // Soft boundary — push back near edges
@@ -179,9 +322,10 @@ export class Drone extends Entity {
     this.position.z = clamp(this.position.z + this.velocity.z * dt, -BOUNDS_Z, BOUNDS_Z);
     this.position.y = DRONE_HEIGHT;
 
-    // Visual tilt
-    this.group.rotation.x = lerp(this.group.rotation.x, -this.velocity.z / speed * TILT_X_MAX, dt * 12);
-    this.group.rotation.z = lerp(this.group.rotation.z, -this.velocity.x / speed * TILT_Z_MAX, dt * 12);
+    // Visual tilt — normalize against base speed so evasive burst doesn't break tilt angle
+    const baseSpeed = DRONE_SPEED * this.speedMultiplier;
+    this.group.rotation.x = lerp(this.group.rotation.x, -this.velocity.z / baseSpeed * TILT_X_MAX, dt * 12);
+    this.group.rotation.z = lerp(this.group.rotation.z, -this.velocity.x / baseSpeed * TILT_Z_MAX, dt * 12);
   }
 
   _updateShield(dt) {
@@ -223,11 +367,25 @@ export class Drone extends Entity {
     const isBelowDrop = weapon.type === 'bomb' || weapon.type === 'cluster';
     if (!isBelowDrop && !target && weapon.type !== 'emp') return;
 
-    const cooldown = weapon.cooldownDuration * this.cooldownMultiplier;
+    const cooldown = weapon.cooldownDuration * this._effectiveCooldownMultiplier();
     if (slot === 'primary') {
       this.primaryCooldown = cooldown;
     } else {
       this.secondaryCooldown = cooldown;
+    }
+
+    // One-shot damage bonuses: killstreak (2×) and overcharge (3×), whichever is active
+    let shotMultiplier = this.damageMultiplier;
+    if (this._killstreakReady) {
+      shotMultiplier *= 2;
+      this._killstreakReady = false;
+      this._killstreakCount = 0;
+      bus.emit('drone:killstreakUsed', {});
+    } else if (this._overchargeReady) {
+      shotMultiplier *= 3;
+      this._overchargeReady = false;
+      this._overchargeTimer = 20; // restart countdown
+      bus.emit('drone:overchargeUsed', {});
     }
 
     bus.emit('weapon:dronefire', {
@@ -235,7 +393,8 @@ export class Drone extends Entity {
       dronePosition: this.position.clone(),
       target: target || null,
       weapon,
-      damageMultiplier: this.damageMultiplier,
+      damageMultiplier: shotMultiplier,
+      upgrades: this._upgrades,
     });
   }
 
@@ -269,7 +428,8 @@ export class Drone extends Entity {
       const dist2d = Math.hypot(dx, dz);
 
       if (weapon.type === 'missile') {
-        if (dist2d > weapon.range) continue;
+        const missileRange = weapon.range + (this._upgrades?.targetLock ? 8 : 0);
+        if (dist2d > missileRange) continue;
         const priority = MISSILE_PRIORITY[unit.type] ?? 3;
         if (priority < bestScore) { bestScore = priority; best = unit; }
       } else {
@@ -289,9 +449,25 @@ export class Drone extends Entity {
   takeDamage() {
     if (this.shieldTimer > 0 || this._dying) return;
 
+    // Shield drone: block hit and go on cooldown
+    if (this._upgrades?.shieldDrone && this._shieldDroneCooldown <= 0) {
+      this._shieldDroneCooldown = 15;
+      bus.emit('drone:shieldDroneBlocked', {});
+      // Still give brief flash so player knows the block happened
+      this.shieldTimer = 0.3;
+      this._flashTimer = 0;
+      return;
+    }
+
     this.hp -= 1;
     this.shieldTimer = SHIELD_DURATION;
     this._flashTimer = 0;
+
+    // Evasive maneuver: speed burst on hit
+    if (this._upgrades?.evasiveManeuver) {
+      this._evasiveActive   = true;
+      this._evasiveBurstTimer = 0.5;
+    }
 
     bus.emit('drone:hit', { hpRemaining: this.hp });
 

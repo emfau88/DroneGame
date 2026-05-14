@@ -62,22 +62,105 @@
     .btn:disabled, .btn.disabled { opacity: .4; cursor: not-allowed; }
 
     /* ─── Start screen ────────────────────────────────── */
-    #screen-start { display: flex; }
+    #screen-start { display: flex; flex-direction: column; gap: 0; padding: 24px 16px; justify-content: center; }
+    /* Lang toggle */
+    #lang-toggle-wrap {
+      position: absolute; top: 14px; right: 16px;
+      display: flex; gap: 6px; z-index: 10;
+    }
+    .lang-btn {
+      background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2);
+      border-radius: 5px; color: rgba(255,255,255,.6); font-family: inherit;
+      font-size: .78rem; padding: 4px 10px; cursor: pointer; transition: all .15s;
+    }
+    .lang-btn:hover { background: rgba(255,255,255,.15); color: #fff; }
+    .lang-btn.active { background: rgba(41,123,255,.3); border-color: #297BFF; color: #fff; }
+
+    #drone-canvas-wrap {
+      width: 100%; height: 130px; position: relative; overflow: hidden; pointer-events: none;
+    }
+    #drone-preview-canvas { width: 100%; height: 100%; display: block; }
+
+    /* Map path */
+    #map-path-wrap {
+      margin-top: 12px; width: 100%; max-width: 740px;
+    }
+    #btn-map-path {
+      background: none; border: none; color: rgba(255,255,255,.45);
+      font-family: inherit; font-size: .78rem; letter-spacing: .1em;
+      text-transform: uppercase; cursor: pointer; padding: 4px 0;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #btn-map-path:hover { color: rgba(255,255,255,.8); }
+    #btn-map-path .arrow { transition: transform .2s; display: inline-block; }
+    #btn-map-path.open .arrow { transform: rotate(90deg); }
+    #map-path-inner {
+      display: none; margin-top: 10px; overflow-x: auto; padding-bottom: 6px;
+    }
+    #map-path-inner.open { display: block; }
+    .map-path-row {
+      display: flex; align-items: center; gap: 0; min-width: max-content;
+    }
+    .map-node {
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      width: 80px; cursor: default;
+    }
+    .map-node-circle {
+      width: 44px; height: 44px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.22);
+      background: rgba(255,255,255,.06);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem; line-height: 1; transition: border-color .2s;
+    }
+    .map-node.cleared .map-node-circle {
+      border-color: #44FF88; background: rgba(68,255,136,.12);
+    }
+    .map-node.current .map-node-circle {
+      border-color: #297BFF; background: rgba(41,123,255,.18);
+      box-shadow: 0 0 10px rgba(41,123,255,.4);
+    }
+    .map-node-name {
+      font-size: .62rem; letter-spacing: .06em; text-transform: uppercase;
+      color: rgba(255,255,255,.55); text-align: center; line-height: 1.2;
+    }
+    .map-node.cleared .map-node-name { color: #44FF88; }
+    .map-node.current .map-node-name { color: #297BFF; }
+    .map-connector {
+      width: 24px; height: 2px; background: rgba(255,255,255,.15);
+      flex-shrink: 0; margin-bottom: 20px;
+    }
+    .map-connector.cleared { background: #44FF88; opacity: .5; }
 
     /* ─── Upgrade select screen ───────────────────────── */
     #screen-upgrade { display: none; }
     .upgrade-cards {
       display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
-      max-width: 780px; padding: 0 16px;
+      max-width: 960px; padding: 0 16px;
     }
     .upgrade-card {
-      width: 220px; padding: 20px 16px; border-radius: 8px;
+      width: 220px; padding: 20px 16px 16px; border-radius: 8px;
       background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.2);
       cursor: pointer; transition: background .15s, border-color .15s;
-      touch-action: none; text-align: center;
+      touch-action: none; text-align: center; position: relative;
     }
     .upgrade-card:hover, .upgrade-card:active {
       background: rgba(41,123,255,.25); border-color: #297BFF;
+    }
+    /* Active badge variant — subtle warm tint */
+    .upgrade-card--active {
+      border-color: rgba(255,226,138,.35);
+      background: rgba(255,226,138,.06);
+    }
+    .upgrade-card--active:hover, .upgrade-card--active:active {
+      background: rgba(255,226,138,.16); border-color: #FFE28A;
+    }
+    /* Reroll card — dashed border, muted */
+    .upgrade-card--reroll {
+      border-style: dashed; border-color: rgba(255,255,255,.25);
+      background: rgba(255,255,255,.04);
+    }
+    .upgrade-card--reroll:hover, .upgrade-card--reroll:active {
+      background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.5);
     }
     .upgrade-card .card-name {
       font-size: 1rem; font-weight: 700; letter-spacing: .08em;
@@ -89,6 +172,13 @@
     }
     .upgrade-card .card-desc {
       font-size: .8rem; color: rgba(255,255,255,.65); line-height: 1.4;
+    }
+    .card-active-badge {
+      display: inline-block; margin-top: 10px;
+      padding: 2px 8px; border-radius: 3px;
+      background: rgba(255,226,138,.18); border: 1px solid rgba(255,226,138,.4);
+      font-size: .6rem; font-weight: 700; letter-spacing: .15em;
+      text-transform: uppercase; color: #FFE28A;
     }
 
     /* ─── Run Over screen ─────────────────────────────── */
@@ -140,6 +230,14 @@
       background: rgba(255,255,255,.15);
       opacity: .45;
     }
+    @keyframes hp-lose {
+      0%   { transform: scale(1.6); opacity: 1; }
+      60%  { transform: scale(0.9); }
+      100% { transform: scale(1);   opacity: .45; }
+    }
+    .hp-icon.losing {
+      animation: hp-lose 0.35s ease-out forwards;
+    }
 
     /* Map / objective — top-right */
     #map-info {
@@ -174,6 +272,95 @@
       text-shadow: 0 2px 8px rgba(0,0,0,.9);
       pointer-events: none; opacity: 0;
       transition: opacity .15s;
+    }
+
+    /* Kill-source notification — shown briefly when drone dies */
+    #kill-source-text {
+      position: absolute; top: 38%; left: 50%; transform: translateX(-50%);
+      font-size: .8rem; font-weight: 700; letter-spacing: .2em;
+      text-transform: uppercase; color: #F24848;
+      text-shadow: 0 2px 8px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .3s;
+      white-space: nowrap;
+    }
+
+    /* Tutorial tooltip — fades in at 3s, out at 6s on map 1 */
+    #hud-tooltip {
+      position: absolute; bottom: 28%; left: 50%; transform: translateX(-50%);
+      padding: 8px 20px; border-radius: 6px;
+      background: rgba(9,16,24,.82); border: 1px solid rgba(255,226,138,.4);
+      font-size: .75rem; font-weight: 700; letter-spacing: .15em;
+      text-transform: uppercase; color: #FFE28A;
+      text-shadow: 0 1px 4px rgba(0,0,0,.8);
+      pointer-events: none; opacity: 0;
+      transition: opacity .6s;
+      white-space: nowrap;
+    }
+
+    /* ── Hit vignette — full-screen red flash on damage ── */
+    #hit-vignette {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(220,20,20,0.65) 100%);
+      pointer-events: none; opacity: 0;
+      transition: opacity 0.05s;
+    }
+
+    /* ── Hull breach text ── */
+    #hull-breach-text {
+      position: absolute; top: 18%; left: 50%; transform: translateX(-50%);
+      font-size: 1.1rem; font-weight: 700; letter-spacing: .3em;
+      text-transform: uppercase; color: #FF2222;
+      text-shadow: 0 2px 12px rgba(255,0,0,.9);
+      pointer-events: none; opacity: 0;
+      white-space: nowrap;
+    }
+
+    /* ── Directional hit arrows ── */
+    .hit-arrow {
+      position: absolute; width: 0; height: 0;
+      pointer-events: none; opacity: 0;
+    }
+    /* Arrow shapes via borders */
+    #hit-arrow-top {
+      top: 10px; left: 50%; transform: translateX(-50%);
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-bottom: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+    #hit-arrow-bottom {
+      bottom: 140px; left: 50%; transform: translateX(-50%);
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-top: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+    #hit-arrow-left {
+      left: 10px; top: 50%; transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-right: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+    #hit-arrow-right {
+      right: 10px; top: 50%; transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-left: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+
+    /* ── Enemy drone approach warning ── */
+    #drone-warning {
+      position: absolute; top: 14%; left: 50%; transform: translateX(-50%);
+      padding: 4px 16px; border-radius: 4px;
+      background: rgba(200,0,0,.25); border: 1px solid rgba(255,30,30,.5);
+      font-size: .7rem; font-weight: 700; letter-spacing: .2em;
+      text-transform: uppercase; color: #FF4444;
+      text-shadow: 0 1px 4px rgba(0,0,0,.8);
+      pointer-events: none; opacity: 0;
+      white-space: nowrap;
     }
 
     /* Bottom controls */
@@ -261,52 +448,61 @@
 
     <!-- ── Start ──────────────────────────────────────── -->
     <div id="screen-start" class="screen">
-      <h1>Drone<br>Strike</h1>
-      <p>You are a combat drone over an active battlefield.<br>Survive. Strike smart. Push the front line forward.</p>
-      <button id="btn-play" class="btn primary">New Run</button>
+      <div id="lang-toggle-wrap"></div>
+      <div id="drone-canvas-wrap">
+        <canvas id="drone-preview-canvas"></canvas>
+      </div>
+      <h1 style="margin-top:4px;">Drone<br>Strike</h1>
+      <p data-i18n="start.subtitle">You are a combat drone over an active battlefield.<br>Survive. Strike smart. Push the front line forward.</p>
+      <button id="btn-play" class="btn primary" style="margin-top:8px;" data-i18n="start.newRun">New Run</button>
+      <div id="map-path-wrap">
+        <button id="btn-map-path"><span class="arrow">▶</span><span data-i18n="start.missionOverview"> Mission Overview</span></button>
+        <div id="map-path-inner">
+          <div class="map-path-row" id="map-path-row"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ── Upgrade Select ────────────────────────────── -->
     <div id="screen-upgrade" class="screen">
-      <h1>Choose Upgrade</h1>
+      <h1 data-i18n="upgrade.title">Choose Upgrade</h1>
       <p id="upgrade-map-label" style="color:#FFE28A;font-weight:700;letter-spacing:.1em;"></p>
       <div class="upgrade-cards" id="upgrade-cards"></div>
     </div>
 
     <!-- ── Run Over ──────────────────────────────────── -->
     <div id="screen-run-over" class="screen">
-      <h1 style="color:#F24848;">Run Over</h1>
+      <h1 style="color:#F24848;" data-i18n="runover.title">Drone Down</h1>
       <div class="run-stats">
-        <div class="run-stat">Maps Cleared: <span id="stat-maps">0</span>/8</div>
-        <div class="run-stat">Total Kills: <span id="stat-kills">0</span></div>
-        <div class="run-stat">Survival Time: <span id="stat-time">0:00</span></div>
+        <div class="run-stat"><span data-i18n="runover.kills">Kills</span>: <span id="stat-kills">0</span></div>
+        <div class="run-stat"><span data-i18n="runover.time">Time</span>: <span id="stat-time">0:00</span></div>
       </div>
       <div class="meta-unlock" id="meta-unlock-block">
-        <div class="meta-label">Meta Upgrade Unlocked</div>
+        <div class="meta-label" data-i18n="runover.metaTitle">Permanent Unlock</div>
         <div class="meta-name" id="meta-unlock-name">—</div>
         <div class="meta-desc" id="meta-unlock-desc"></div>
       </div>
       <div style="display:flex;gap:12px;">
-        <button id="btn-run-over-new" class="btn primary">New Run</button>
-        <button id="btn-run-over-menu" class="btn">Main Menu</button>
+        <button id="btn-run-over-new" class="btn primary" data-i18n="start.newRun">New Run</button>
+        <button id="btn-run-over-menu" class="btn" data-i18n="runover.menu">Main Menu</button>
       </div>
     </div>
 
     <!-- ── Run Win ───────────────────────────────────── -->
     <div id="screen-run-win" class="screen">
-      <h1 style="color:#FFE28A;">Campaign<br>Complete</h1>
+      <h1 style="color:#FFE28A;" data-i18n="runwin.title">Mission Complete</h1>
       <div class="run-stats">
-        <div class="run-stat">Total Kills: <span id="win-stat-kills">0</span></div>
-        <div class="run-stat">Survival Time: <span id="win-stat-time">0:00</span></div>
+        <div class="run-stat"><span data-i18n="runwin.kills">Kills</span>: <span id="win-stat-kills">0</span></div>
+        <div class="run-stat"><span data-i18n="runwin.time">Time</span>: <span id="win-stat-time">0:00</span></div>
       </div>
       <div class="meta-unlock" id="win-meta-unlock-block">
-        <div class="meta-label">Meta Upgrade Unlocked</div>
+        <div class="meta-label" data-i18n="runwin.metaTitle">Permanent Unlock</div>
         <div class="meta-name" id="win-meta-unlock-name">—</div>
         <div class="meta-desc" id="win-meta-unlock-desc"></div>
       </div>
       <div style="display:flex;gap:12px;">
-        <button id="btn-run-win-new" class="btn primary">New Run</button>
-        <button id="btn-run-win-menu" class="btn">Main Menu</button>
+        <button id="btn-run-win-new" class="btn primary" data-i18n="runwin.newRun">New Run</button>
+        <button id="btn-run-win-menu" class="btn" data-i18n="runwin.menu">Main Menu</button>
       </div>
     </div>
 
@@ -332,6 +528,22 @@
       <div id="center-text"></div>
       <!-- Near-miss flash -->
       <div id="near-miss-text">NEAR MISS</div>
+      <!-- Kill source (shown on death) -->
+      <div id="kill-source-text"></div>
+      <!-- Tutorial tooltip (map 1 only, one-time) -->
+      <div id="hud-tooltip">FLAK AHEAD — KEEP MOVING</div>
+
+      <!-- Hit vignette — full-screen red flash on damage -->
+      <div id="hit-vignette"></div>
+      <!-- Hull breach notification -->
+      <div id="hull-breach-text">HULL BREACH</div>
+      <!-- Directional hit arrows -->
+      <div class="hit-arrow" id="hit-arrow-top"></div>
+      <div class="hit-arrow" id="hit-arrow-bottom"></div>
+      <div class="hit-arrow" id="hit-arrow-left"></div>
+      <div class="hit-arrow" id="hit-arrow-right"></div>
+      <!-- Enemy drone approach warning -->
+      <div id="drone-warning">⚠ ENEMY DRONE</div>
 
       <div id="hud-bottom">
         <div id="joystick">

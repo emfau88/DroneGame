@@ -12,7 +12,7 @@ const ZONE_WIN_SECS   = 60;
 // Convoy
 const CONVOY_HP       = 100;
 const CONVOY_SPEED    = 3;
-const CONVOY_END_X    = 35;
+const CONVOY_END_X    = 0;
 
 // Geometries — created once
 const _hqGeo     = new THREE.BoxGeometry(4, 3, 4);
@@ -39,6 +39,7 @@ export class ObjectiveSystem {
     // Hold zone
     this._zoneMesh       = null;
     this._zoneTimer      = 0;
+    this._redZoneTimer   = 0; // seconds red has controlled zone — lose if > 8
 
     // Convoy
     this._convoyMesh  = null;
@@ -85,12 +86,13 @@ export class ObjectiveSystem {
 
   _initHoldZone() {
     this._zoneTimer = 0;
+    this._redZoneTimer = 0;
 
-    // Ring on ground in center of map
+    // Ring on ground — far left side, player must actively defend it
     const mat = new THREE.MeshBasicMaterial({ color: 0x297BFF, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
     this._zoneMesh = new THREE.Mesh(_zoneGeo, mat);
     this._zoneMesh.rotation.x = -Math.PI / 2;
-    this._zoneMesh.position.set(8, 0.05, 0);
+    this._zoneMesh.position.set(-18, 0.05, 0);
     this._scene.add(this._zoneMesh);
   }
 
@@ -180,13 +182,25 @@ export class ObjectiveSystem {
       }
     }
 
-    const blueControls = blueCount > redCount;
-    if (blueControls) {
+    const blueControls = blueCount > 0 && blueCount >= redCount;
+    const redControls  = redCount > 0 && redCount > blueCount;
+    const contested    = redCount > 0 && blueCount > 0;
+
+    if (redControls || contested) {
+      // Red presence accumulates threat timer — resets only when zone is clear of red
+      this._redZoneTimer += dt;
+      this._zoneMesh.material.color.setHex(contested ? 0xFF8800 : 0xFF4444);
+      if (this._redZoneTimer >= 6) {
+        this._failed = true;
+        bus.emit('objective:failed', { type: 'hold_zone' });
+      }
+    } else if (blueControls) {
       this._zoneTimer += dt;
-      // Green when controlled, blue otherwise
+      this._redZoneTimer = Math.max(0, this._redZoneTimer - dt * 0.5); // bleed off slowly
       this._zoneMesh.material.color.setHex(0x44FF44);
       bus.emit('objective:updated', { type: 'hold_zone', progress: this._zoneTimer / ZONE_WIN_SECS });
     } else {
+      // Empty zone — neutral
       this._zoneMesh.material.color.setHex(0x297BFF);
     }
 
@@ -225,7 +239,7 @@ export class ObjectiveSystem {
 
     bus.emit('objective:updated', {
       type: 'escort_convoy',
-      progress: (this._convoyX + 30) / (CONVOY_END_X + 30),
+      progress: (this._convoyX + 30) / 30,
     });
   }
 

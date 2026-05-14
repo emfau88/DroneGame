@@ -1,6 +1,8 @@
-import { Unit }       from '../entities/Unit.js';
-import { Projectile } from '../entities/Projectile.js';
-import { bus }        from '../core/EventBus.js';
+import * as THREE from 'three';
+import { Unit }           from '../entities/Unit.js';
+import { Projectile }     from '../entities/Projectile.js';
+import { FlakProjectile } from '../entities/FlakProjectile.js';
+import { bus }            from '../core/EventBus.js';
 
 const SEPARATION_RADIUS  = 1.4;
 const SEPARATION_FORCE   = 3.5;
@@ -24,6 +26,10 @@ const NEAR_MISS_DIST = 2.0;
  * BattleSystem — unit AI, movement, combat, flak projectiles, anti-air behavior.
  * Emits: score:updated, battle:resolved, flak:nearMiss.
  */
+// Shared geometries for threat rings and drone trail — created once
+const _threatRingGeo = new THREE.RingGeometry(0.9, 1.1, 48);
+const _droneTrailGeo = new THREE.SphereGeometry(0.12, 4, 3);
+
 export class BattleSystem {
   constructor() {
     this._scene       = null;
@@ -32,6 +38,8 @@ export class BattleSystem {
     this._flakProjectiles = []; // separate pool for flak (targets drone)
     this._scoreTimer  = 0;
     this._resolvedEmitted = false;
+    this._convoyX     = null;
+    this._droneTrailPool = []; // { mesh, timer, maxTimer }
   }
 
   init(scene) {
@@ -40,21 +48,72 @@ export class BattleSystem {
 
   get units() { return this._units; }
 
+  /** Set convoy X position so red ground units pathfind toward it when idle. */
+  setConvoyX(x) { this._convoyX = x; }
+
   spawnUnit(config) {
     const unit = new Unit(this._scene, config);
-    const y = config.y ?? 0; // enemy drones spawn at altitude
+    const y = config.y ?? 0;
     unit.position.set(config.x, y, config.lane ?? 0);
     this._units.push(unit);
+
+    // Threat ring: only flak guns get a visible danger zone — others are obvious from behavior
+    if (unit.team === 'red' && unit.type === 'flakGun') {
+      this._attachThreatRing(unit);
+    }
+
+    // Enemy drone: scale up 1.5×, attach direction cone
+    if (unit.type === 'enemyDrone') {
+      unit.group.scale.setScalar(1.5);
+      this._attachDroneCone(unit);
+    }
+
     return unit;
   }
 
+  _attachThreatRing(unit) {
+    const isFlak = unit.type === 'flakGun';
+    const radius = unit.aaRange;
+    // Scale the ring geometry per unit by using a scaled group
+    const ringGeo = new THREE.RingGeometry(radius - 0.15, radius + 0.15, 64);
+    const mat = new THREE.MeshBasicMaterial({
+      color: isFlak ? 0xFF2200 : 0xFF5500,
+      transparent: true,
+      opacity: isFlak ? 0.35 : 0.18,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(ringGeo, mat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(unit.position.x, 0.05, unit.position.z);
+    this._scene.add(ring);
+    unit._threatRing = ring;
+    unit._threatRingGeo = ringGeo;
+  }
+
+  _attachDroneCone(unit) {
+    const coneGeo = new THREE.ConeGeometry(0.25, 1.2, 6);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xFF2222, transparent: true, opacity: 0.75 });
+    const cone = new THREE.Mesh(coneGeo, mat);
+    // Cone tip points forward (-Z in local space when rotated)
+    cone.rotation.x = Math.PI / 2;
+    cone.position.z = -0.9; // place in front of drone body
+    unit.group.add(cone);
+    unit._dirCone = cone;
+  }
+
   clearAll() {
-    for (const u of this._units)  { if (u.alive) u.destroy(); }
+    for (const u of this._units) {
+      if (u._threatRing)    { this._scene.remove(u._threatRing); u._threatRingGeo?.dispose(); u._threatRing = null; }
+      if (u.alive) u.destroy();
+    }
     for (const p of this._projectiles)     { if (p.alive) p.destroy(); }
     for (const p of this._flakProjectiles) { if (p.alive) p.destroy(); }
+    for (const t of this._droneTrailPool)  { this._scene.remove(t.mesh); t.mesh.material.dispose(); }
     this._units            = [];
     this._projectiles      = [];
     this._flakProjectiles  = [];
+    this._droneTrailPool   = [];
     this._resolvedEmitted  = false;
   }
 
@@ -94,6 +153,16 @@ export class BattleSystem {
 
     this._updateProjectiles(dt);
     this._updateFlakProjectiles(dt, drone);
+    this._updateDroneTrails(dt, drone);
+
+    // Prune dead threat rings
+    for (const unit of this._units) {
+      if (!unit.alive && unit._threatRing) {
+        this._scene.remove(unit._threatRing);
+        unit._threatRingGeo?.dispose();
+        unit._threatRing = null;
+      }
+    }
 
     // Prune
     this._units           = this._units.filter(u => u.alive || u.state === 'dead');
@@ -119,29 +188,40 @@ export class BattleSystem {
     const dz = drone.position.z - unit.position.z;
     const dist3d = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    if (dist3d > unit.aaRange) return;
+    if (dist3d > unit.aaRange) {
+      unit._aaLockTimer = 0;
+      unit.setLaserActive?.(false);
+      unit.setAAGlow?.(false);
+      return;
+    }
 
     // Flak gun: rotate barrel toward drone (visual — handled in Unit)
     if (unit.type === 'flakGun') {
       unit.trackTarget(drone.position);
     }
 
-    // Fire flak when cooldown ready
-    if (!unit._aaCooldownTimer || unit._aaCooldownTimer <= 0) {
-      // Flak gun has a lock-on delay before first shot
-      const lockDelay = (unit._upgrades?.ghostProtocol ?? false) ? unit.aaLockTime + 1.5 : unit.aaLockTime;
-
-      if (!unit._aaLockTimer) unit._aaLockTimer = 0;
-      unit._aaLockTimer += dt;
-
-      if (unit._aaLockTimer >= lockDelay) {
-        this._fireFlak(unit, drone);
-        unit._aaCooldownTimer = unit.aaCooldown;
-        unit._aaLockTimer = 0;
-      }
-    } else {
+    if (unit._aaCooldownTimer > 0) {
       unit._aaCooldownTimer = Math.max(0, unit._aaCooldownTimer - dt);
-      unit._aaLockTimer = 0; // reset lock if drone moves away and back
+      unit.setLaserActive?.(false);
+      return;
+    }
+
+    // In range and ready to lock — show AA targeting glow
+    unit.setAAGlow?.(true);
+
+    // Lock-on phase: accumulate timer and show targeting laser in final 0.5s
+    const lockDelay = (unit._upgrades?.ghostProtocol ?? false) ? unit.aaLockTime + 1.5 : unit.aaLockTime;
+    unit._aaLockTimer += dt;
+
+    const LASER_WARN_TIME = 0.5;
+    const showLaser = unit._aaLockTimer >= lockDelay - LASER_WARN_TIME;
+    unit.setLaserActive?.(showLaser, drone.position);
+
+    if (unit._aaLockTimer >= lockDelay) {
+      this._fireFlak(unit, drone);
+      unit._aaCooldownTimer = unit.aaCooldown;
+      unit._aaLockTimer = 0;
+      unit.setLaserActive?.(false);
     }
   }
 
@@ -149,12 +229,38 @@ export class BattleSystem {
     const from = unit.position.clone();
     from.y = unit.type === 'flakGun' ? 1.2 : 1.0;
 
-    // Flak projectile targets current drone position (slightly homing)
     const to = drone.position.clone();
-    const flak = new FlakProjectile(this._scene, from, to, unit.type === 'flakGun' ? 0.20 : 0.10);
+
+    // Tracer end-point projected to low altitude so the line is clearly visible from camera above
+    const toVisible = new THREE.Vector3(to.x, 1.5, to.z);
+
+    // Per-type projectile options — soldier: slow ballistic yellow; others: homing orange/red
+    let options;
+    switch (unit.type) {
+      case 'soldier':
+        options = { speed: 6, homingStrength: 0, color: 0xFFDD00, small: true };
+        break;
+      case 'rocket':
+        options = { speed: 10, homingStrength: 0.15, color: 0xFF6020 };
+        break;
+      case 'flakGun':
+        options = { speed: 8, homingStrength: 0.25, color: 0xFF3000 };
+        break;
+      default: // tank, commander, others
+        options = { speed: 8, homingStrength: 0.20, color: 0xFF6020 };
+        break;
+    }
+
+    const flak = new FlakProjectile(this._scene, from, to, options);
     this._flakProjectiles.push(flak);
 
-    bus.emit('unit:fire', { position: from.clone(), team: 'red', type: 'flak' });
+    bus.emit('unit:fire', {
+      position: from.clone(),
+      toPosition: toVisible,
+      team: 'red',
+      type: 'flak',
+      unitType: unit.type,
+    });
   }
 
   _updateFlakProjectiles(dt, drone) {
@@ -165,7 +271,7 @@ export class BattleSystem {
       if (drone && drone.alive && flak.alive) {
         const d = flak.position.distanceTo(drone.position);
         if (d < 0.8) {
-          // Hit!
+          bus.emit('battle:droneHit', { sourcePosition: flak.position.clone() });
           drone.takeDamage();
           flak.destroy();
           continue;
@@ -192,10 +298,20 @@ export class BattleSystem {
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
     if (dist < 2.0) {
-      // Collision — both take damage
+      bus.emit('battle:droneHit', { sourcePosition: unit.position.clone() });
       drone.takeDamage();
-      unit.takeDamage(unit.hp); // kill enemy drone
+      unit.takeDamage(unit.hp);
       return;
+    }
+
+    // Rotate group to face drone — cone will follow
+    if (dist > 0.1) {
+      unit.group.rotation.y = Math.atan2(dx, dz);
+    }
+
+    // Approach warning events
+    if (dist <= 18) {
+      bus.emit('enemyDrone:approach', { sourcePosition: unit.position.clone(), dist });
     }
 
     // Intercept: move directly toward player drone
@@ -205,6 +321,31 @@ export class BattleSystem {
       unit.position.y += (dy / dist) * spd;
       unit.position.z += (dz / dist) * spd;
     }
+
+    // Trail: spawn a trail sphere every 0.08s (timer stored per-unit)
+    unit._trailTimer = (unit._trailTimer ?? 0) - dt;
+    if (unit._trailTimer <= 0) {
+      unit._trailTimer = 0.08;
+      const mat = new THREE.MeshBasicMaterial({ color: 0xFF2222, transparent: true, opacity: 0.7 });
+      const mesh = new THREE.Mesh(_droneTrailGeo, mat);
+      mesh.position.copy(unit.position);
+      this._scene.add(mesh);
+      this._droneTrailPool.push({ mesh, timer: 0.5, maxTimer: 0.5 });
+    }
+  }
+
+  _updateDroneTrails(dt) {
+    const dead = [];
+    for (const t of this._droneTrailPool) {
+      t.timer -= dt;
+      t.mesh.material.opacity = 0.7 * (t.timer / t.maxTimer);
+      if (t.timer <= 0) {
+        this._scene.remove(t.mesh);
+        t.mesh.material.dispose();
+        dead.push(t);
+      }
+    }
+    for (const t of dead) this._droneTrailPool.splice(this._droneTrailPool.indexOf(t), 1);
   }
 
   // ── Commander buff ────────────────────────────────────────────────────────
@@ -283,9 +424,15 @@ export class BattleSystem {
   }
 
   _advance(unit, dt, speed, enemy) {
-    const dir = enemy
-      ? Math.sign(enemy.position.x - unit.position.x) || (unit.team === 'blue' ? 1 : -1)
-      : (unit.team === 'blue' ? 1 : -1);
+    let dir;
+    if (enemy) {
+      dir = Math.sign(enemy.position.x - unit.position.x) || (unit.team === 'blue' ? 1 : -1);
+    } else if (unit.team === 'red' && this._convoyX !== null) {
+      // Red units chase convoy when no enemy in range
+      dir = Math.sign(this._convoyX - unit.position.x) || -1;
+    } else {
+      dir = unit.team === 'blue' ? 1 : -1;
+    }
     unit.position.x += dir * speed * dt;
   }
 
@@ -370,55 +517,3 @@ export class BattleSystem {
   }
 }
 
-// ── FlakProjectile ────────────────────────────────────────────────────────────
-
-import * as THREE from 'three';
-import { Entity } from '../entities/Entity.js';
-
-const FLAK_SPEED = 8;
-const _flakGeo  = new THREE.SphereGeometry(0.18, 6, 4);
-const _flakMat  = new THREE.MeshBasicMaterial({ color: 0xFF6020 });
-
-/**
- * FlakProjectile — slow-moving orange sphere with slight homing toward drone.
- * Homing correction is applied per frame as a fraction.
- */
-class FlakProjectile extends Entity {
-  constructor(scene, from, to, homingStrength = 0.20) {
-    super(scene);
-    this._homingStrength = homingStrength;
-    this._traveled = 0;
-    this._nearMissEmitted = false;
-
-    this.position.copy(from);
-
-    // Initial direction toward target
-    this._dir = new THREE.Vector3().subVectors(to, from).normalize();
-
-    // Build mesh
-    const mesh = new THREE.Mesh(_flakGeo, _flakMat.clone());
-    this.group.add(mesh);
-
-    // Smoke trail: simple trail of small spheres (visual only, lightweight)
-    this._trailTimer = 0;
-  }
-
-  update(dt, dronePosition) {
-    const step = FLAK_SPEED * dt;
-    this._traveled += step;
-
-    // Homing: adjust direction toward drone
-    if (dronePosition) {
-      const desired = new THREE.Vector3().subVectors(dronePosition, this.position).normalize();
-      this._dir.lerp(desired, this._homingStrength * dt * 10);
-      this._dir.normalize();
-    }
-
-    this.position.addScaledVector(this._dir, step);
-
-    // Self-destruct after 4 seconds (max range)
-    if (this._traveled > FLAK_SPEED * 4) {
-      this.destroy();
-    }
-  }
-}
