@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Drone Battlefield</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a0f18" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Drohnenwahn</title>
   <style>
     /* ─── Reset ───────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -14,6 +19,8 @@
       font-family: 'Rajdhani', system-ui, sans-serif;
       color: #fff;
       touch-action: none;
+      /* Cover notch / nav bar areas on Android */
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
 
     /* ─── Portrait → force landscape by rotating the root ── */
@@ -77,6 +84,30 @@
     }
     .btn:active, .btn:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.5); }
     .btn.primary { background: #297BFF; border-color: #297BFF; }
+
+    /* ─── Fullscreen button ───────────────────────────── */
+    #btn-fullscreen {
+      position: fixed;
+      top: max(12px, env(safe-area-inset-top, 12px));
+      right: max(12px, env(safe-area-inset-right, 12px));
+      z-index: 9999;
+      width: 40px; height: 40px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,.28);
+      background: rgba(0,0,0,.45);
+      color: #fff;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #btn-fullscreen:active { background: rgba(255,255,255,.18); }
+    /* Hide on desktop when fullscreen API not available */
+    @media (hover: hover) and (pointer: fine) {
+      #btn-fullscreen { opacity: 0.5; }
+    }
     .btn.primary:hover, .btn.primary:active { background: #1A5FD4; }
     .btn:disabled, .btn.disabled { opacity: .4; cursor: not-allowed; }
 
@@ -813,6 +844,40 @@
   </div>
 
   <script type="module" src="/src/main.js"></script>
+
+  <!-- Fullscreen button — always on top, works independently of game -->
+  <button id="btn-fullscreen" title="Vollbild">⛶</button>
+  <script>
+    (function () {
+      const btn = document.getElementById('btn-fullscreen');
+      const el  = document.documentElement;
+
+      function isFS() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+      }
+
+      function updateIcon() {
+        btn.textContent = isFS() ? '✕' : '⛶';
+      }
+
+      btn.addEventListener('click', function () {
+        if (isFS()) {
+          (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        } else {
+          const req = el.requestFullscreen || el.webkitRequestFullscreen;
+          if (req) req.call(el, { navigationUI: 'hide' });
+        }
+      });
+
+      document.addEventListener('fullscreenchange', updateIcon);
+      document.addEventListener('webkitfullscreenchange', updateIcon);
+
+      // Hide button if Fullscreen API not supported (e.g. iOS Safari)
+      if (!el.requestFullscreen && !el.webkitRequestFullscreen) {
+        btn.style.display = 'none';
+      }
+    })();
+  </script>
 </div><!-- #root-rotate -->
 </body>
 </html>

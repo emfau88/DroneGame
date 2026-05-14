@@ -1,0 +1,19 @@
+{
+  "name": "Drohnenwahn",
+  "short_name": "Drohnenwahn",
+  "description": "Offiziell nicht genehmigt. Budget bereits überschritten. Viel Erfolg.",
+  "start_url": "/DroneGame/",
+  "scope": "/DroneGame/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a0f18",
+  "theme_color": "#0a0f18",
+  "icons": [
+    {
+      "src": "icons.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
