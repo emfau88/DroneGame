@@ -26,8 +26,7 @@ const NEAR_MISS_DIST = 2.0;
  * BattleSystem — unit AI, movement, combat, flak projectiles, anti-air behavior.
  * Emits: score:updated, battle:resolved, flak:nearMiss.
  */
-// Shared geometries for threat rings and drone trail — created once
-const _threatRingGeo = new THREE.RingGeometry(0.9, 1.1, 48);
+// Shared geometries
 const _droneTrailGeo = new THREE.SphereGeometry(0.12, 4, 3);
 
 export class BattleSystem {
@@ -57,9 +56,9 @@ export class BattleSystem {
     unit.position.set(config.x, y, config.lane ?? 0);
     this._units.push(unit);
 
-    // Threat ring: only flak guns get a visible danger zone — others are obvious from behavior
-    if (unit.team === 'red' && unit.type === 'flakGun') {
-      this._attachThreatRing(unit);
+    // Titan tank: scale up 2.2× for boss presence
+    if (unit.type === 'titanTank') {
+      unit.group.scale.setScalar(2.2);
     }
 
     // Enemy drone: scale up 1.5×, attach direction cone
@@ -69,26 +68,6 @@ export class BattleSystem {
     }
 
     return unit;
-  }
-
-  _attachThreatRing(unit) {
-    const isFlak = unit.type === 'flakGun';
-    const radius = unit.aaRange;
-    // Scale the ring geometry per unit by using a scaled group
-    const ringGeo = new THREE.RingGeometry(radius - 0.15, radius + 0.15, 64);
-    const mat = new THREE.MeshBasicMaterial({
-      color: isFlak ? 0xFF2200 : 0xFF5500,
-      transparent: true,
-      opacity: isFlak ? 0.35 : 0.18,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const ring = new THREE.Mesh(ringGeo, mat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(unit.position.x, 0.05, unit.position.z);
-    this._scene.add(ring);
-    unit._threatRing = ring;
-    unit._threatRingGeo = ringGeo;
   }
 
   _attachDroneCone(unit) {
@@ -104,7 +83,6 @@ export class BattleSystem {
 
   clearAll() {
     for (const u of this._units) {
-      if (u._threatRing)    { this._scene.remove(u._threatRing); u._threatRingGeo?.dispose(); u._threatRing = null; }
       if (u.alive) u.destroy();
     }
     for (const p of this._projectiles)     { if (p.alive) p.destroy(); }
@@ -136,14 +114,38 @@ export class BattleSystem {
         continue;
       }
 
-      // Flak gun — static, only targets drone
-      if (unit.type === 'flakGun') {
+      // SAM family — static, only targets drone
+      if (unit.type === 'flakGun' || unit.type === 'samMedium' || unit.type === 'samHeavy') {
         if (drone && drone.alive) this._updateAntiAir(unit, drone, dt);
         continue;
       }
 
-      // Ground unit AI
-      this._updateUnit(unit, dt, buffed);
+      // Titan Tank — moves + shoots ground + shoots drone
+      if (unit.type === 'titanTank') {
+        this._updateUnit(unit, dt, buffed);
+        if (drone && drone.alive) {
+          unit.trackTarget?.(drone.position);
+          this._updateAntiAir(unit, drone, dt);
+        }
+        continue;
+      }
+
+      // Jammer — static, continuously checks radius, no AA fire
+      if (unit.type === 'jammer') {
+        if (drone && drone.alive) this._updateJammer(unit, drone);
+        continue;
+      }
+
+      // EMP Mortar — static, lobs grenade at drone
+      if (unit.type === 'empMortar') {
+        if (drone && drone.alive) this._updateAntiAir(unit, drone, dt);
+        continue;
+      }
+
+      // Ground unit AI (skip purely static non-AA units)
+      if (unit.speed > 0 || unit.range > 0) {
+        this._updateUnit(unit, dt, buffed);
+      }
 
       // Anti-air behavior (if unit has AA stats)
       if (drone && drone.alive && unit.aaRange > 0) {
@@ -151,18 +153,10 @@ export class BattleSystem {
       }
     }
 
+    this._updatePendingFlak(dt);
     this._updateProjectiles(dt);
     this._updateFlakProjectiles(dt, drone);
     this._updateDroneTrails(dt, drone);
-
-    // Prune dead threat rings
-    for (const unit of this._units) {
-      if (!unit.alive && unit._threatRing) {
-        this._scene.remove(unit._threatRing);
-        unit._threatRingGeo?.dispose();
-        unit._threatRing = null;
-      }
-    }
 
     // Prune
     this._units           = this._units.filter(u => u.alive || u.state === 'dead');
@@ -195,8 +189,8 @@ export class BattleSystem {
       return;
     }
 
-    // Flak gun: rotate barrel toward drone (visual — handled in Unit)
-    if (unit.type === 'flakGun') {
+    // SAM family + titanTank: rotate barrel toward drone
+    if (unit.type === 'flakGun' || unit.type === 'samMedium' || unit.type === 'samHeavy' || unit.type === 'empMortar' || unit.type === 'titanTank') {
       unit.trackTarget(drone.position);
     }
 
@@ -226,19 +220,72 @@ export class BattleSystem {
   }
 
   _fireFlak(unit, drone) {
+    const SAM_Y = { flakGun: 1.2, samMedium: 1.3, samHeavy: 1.4, empMortar: 1.0 };
     const from = unit.position.clone();
-    from.y = unit.type === 'flakGun' ? 1.2 : 1.0;
+    from.y = SAM_Y[unit.type] ?? 1.0;
 
     const to = drone.position.clone();
-
-    // Tracer end-point projected to low altitude so the line is clearly visible from camera above
     const toVisible = new THREE.Vector3(to.x, 1.5, to.z);
+
+    // Titan Tank: slow heavy shell — wide arc, deals double damage
+    if (unit.type === 'titanTank') {
+      const options = { speed: 9, homingStrength: 0.22, color: 0xFF6600, isTitanShell: true };
+      const flak = new FlakProjectile(this._scene, from, to, options);
+      this._flakProjectiles.push(flak);
+      bus.emit('unit:fire', { position: from.clone(), toPosition: toVisible, team: 'red', type: 'flak', unitType: unit.type });
+      return;
+    }
+
+    // EMP Mortar: lob a slow grenade that marks the drone for a weapon-freeze on hit
+    if (unit.type === 'empMortar') {
+      const options = { speed: 7, homingStrength: 0.08, color: 0x44DDFF, isEmp: true, arcHeight: 6 };
+      const flak = new FlakProjectile(this._scene, from, to, options);
+      this._flakProjectiles.push(flak);
+      bus.emit('unit:fire', { position: from.clone(), toPosition: toVisible, team: 'red', type: 'emp', unitType: unit.type });
+      return;
+    }
+
+    // SAM Heavy: 3-shot quick burst with slight spread
+    if (unit.type === 'samHeavy') {
+      for (let i = 0; i < 3; i++) {
+        const jitter = new THREE.Vector3(
+          (Math.random() - 0.5) * 1.5,
+          (Math.random() - 0.5) * 0.8,
+          (Math.random() - 0.5) * 1.5,
+        );
+        const aim = to.clone().add(jitter);
+        const options = { speed: 12, homingStrength: 0.30, color: 0xFF2200, isSamHeavy: true };
+        const delay = i * 0.18; // stagger launches
+        if (delay === 0) {
+          this._flakProjectiles.push(new FlakProjectile(this._scene, from.clone(), aim, options));
+        } else {
+          // Schedule delayed shots via stored pending list
+          this._pendingFlak = this._pendingFlak || [];
+          this._pendingFlak.push({ timer: delay, from: from.clone(), to: aim, options });
+        }
+      }
+      bus.emit('unit:fire', { position: from.clone(), toPosition: toVisible, team: 'red', type: 'flak', unitType: unit.type });
+      return;
+    }
+
+    // SAM Medium: 2 missiles, second fires 0.3s later
+    if (unit.type === 'samMedium') {
+      const options = { speed: 10, homingStrength: 0.28, color: 0xEEEECC, isSamMed: true };
+      this._flakProjectiles.push(new FlakProjectile(this._scene, from.clone(), to.clone(), options));
+      this._pendingFlak = this._pendingFlak || [];
+      this._pendingFlak.push({ timer: 0.3, from: from.clone(), to: to.clone(), options: { ...options } });
+      bus.emit('unit:fire', { position: from.clone(), toPosition: toVisible, team: 'red', type: 'flak', unitType: unit.type });
+      return;
+    }
 
     // Per-type projectile options — soldier: slow ballistic yellow; others: homing orange/red
     let options;
     switch (unit.type) {
       case 'soldier':
         options = { speed: 6, homingStrength: 0, color: 0xFFDD00, small: true };
+        break;
+      case 'rocketInfantry':
+        options = { speed: 11, homingStrength: 0.20, color: 0xFF6020 };
         break;
       case 'rocket':
         options = { speed: 10, homingStrength: 0.15, color: 0xFF6020 };
@@ -263,6 +310,31 @@ export class BattleSystem {
     });
   }
 
+  _updateJammer(unit, drone) {
+    const dx = drone.position.x - unit.position.x;
+    const dz = drone.position.z - unit.position.z;
+    const dist = Math.hypot(dx, dz);
+    const inRange = dist <= unit.jamRadius;
+    if (drone._jammerActive !== inRange) {
+      drone._jammerActive = inRange;
+      bus.emit('drone:jammed', { active: inRange });
+    }
+  }
+
+  _updatePendingFlak(dt) {
+    if (!this._pendingFlak?.length) return;
+    const stillPending = [];
+    for (const p of this._pendingFlak) {
+      p.timer -= dt;
+      if (p.timer <= 0) {
+        this._flakProjectiles.push(new FlakProjectile(this._scene, p.from, p.to, p.options));
+      } else {
+        stillPending.push(p);
+      }
+    }
+    this._pendingFlak = stillPending;
+  }
+
   _updateFlakProjectiles(dt, drone) {
     for (const flak of this._flakProjectiles) {
       if (!flak.alive) continue;
@@ -271,8 +343,22 @@ export class BattleSystem {
       if (drone && drone.alive && flak.alive) {
         const d = flak.position.distanceTo(drone.position);
         if (d < 0.8) {
-          bus.emit('battle:droneHit', { sourcePosition: flak.position.clone() });
-          drone.takeDamage();
+          if (flak._opts?.isEmp) {
+            // EMP hit: freeze drone weapons for 2s instead of dealing damage
+            drone._empWeaponFreezeTimer = (drone._empWeaponFreezeTimer || 0) > 0
+              ? drone._empWeaponFreezeTimer + 1  // extend if already frozen
+              : 2.0;
+            bus.emit('drone:empFreeze', { duration: 2.0 });
+          } else if (flak._opts?.isTitanShell) {
+            // Titan shell: 2 damage hits
+            bus.emit('battle:droneHit', { sourcePosition: flak.position.clone() });
+            drone.takeDamage();
+            drone.takeDamage();
+            bus.emit('battle:titanHit', { position: flak.position.clone() });
+          } else {
+            bus.emit('battle:droneHit', { sourcePosition: flak.position.clone() });
+            drone.takeDamage();
+          }
           flak.destroy();
           continue;
         }

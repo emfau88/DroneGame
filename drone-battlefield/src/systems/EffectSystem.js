@@ -23,8 +23,9 @@ export class EffectSystem {
     this._empRingGeo   = null;
     this._muzzleGeo    = null;
 
-    this._onImpact = null;
-    this._onFire   = null;
+    this._onImpact    = null;
+    this._onFire      = null;
+    this._onUnitDied  = null;
   }
 
   init(scene) {
@@ -39,8 +40,14 @@ export class EffectSystem {
 
     this._onImpact = (data) => {
       const t = (data.type || '').toLowerCase();
-      if (t === 'bomb' || t === 'cluster') this.playExplosion(data.position);
-      if (t === 'emp')  this.playEMP(data.position, data.affectedUnits || []);
+      if (t === 'bomb' || t === 'cluster') {
+        this.playExplosion(data.position);
+        if (data.radius) this._playRadiusFlash(data.position, data.radius, 0xFF8800);
+      }
+      if (t === 'emp') {
+        this.playEMP(data.position, data.affectedUnits || []);
+        if (data.radius) this._playRadiusFlash(data.position, data.radius, 0x44DDFF);
+      }
       if (t === 'cannon' || t === 'missile') {
         if (data.position) this._playMuzzleFlash(data.position);
       }
@@ -54,8 +61,12 @@ export class EffectSystem {
       }
     };
 
+    this._onUnitDied = ({ unit }) => {
+      if (unit?.alive === false || unit?.position) this._playDeathBurst(unit);
+    };
     bus.on('weapon:impact', this._onImpact);
     bus.on('unit:fire',     this._onFire);
+    bus.on('unit:died',     this._onUnitDied);
   }
 
   update(dt) {
@@ -126,6 +137,11 @@ export class EffectSystem {
           fx.mesh.material.opacity = 0.85 * t;
           break;
         }
+        case 'radiusFlash': {
+          // Quickly fade out — no scaling, just opacity drop
+          fx.mesh.material.opacity = 0.55 * t;
+          break;
+        }
       }
     }
 
@@ -146,13 +162,16 @@ export class EffectSystem {
 
   // ── Flak tracer line ──────────────────────────────────────────────────────
   _playFlakTracer(from, to, unitType) {
-    // Per-type visual config
+    // Per-type visual config — longer durations so player can read the threat source
     let color, duration;
     switch (unitType) {
-      case 'soldier':  color = 0xFFFF00; duration = 0.30; break;
-      case 'rocket':   color = 0xFF8822; duration = 0.40; break;
-      case 'flakGun':  color = 0xFF2200; duration = 0.45; break;
-      default:         color = 0xFF5500; duration = 0.35; break; // tank, commander
+      case 'soldier':    color = 0xFFFF00; duration = 0.50; break;
+      case 'rocket':     color = 0xFF8822; duration = 0.60; break;
+      case 'flakGun':    color = 0xFF3300; duration = 0.90; break;
+      case 'samMedium':  color = 0xEEEECC; duration = 1.00; break;
+      case 'samHeavy':   color = 0xFF2200; duration = 1.10; break;
+      case 'titanTank':  color = 0xFF6600; duration = 1.20; break;
+      default:           color = 0xFF5500; duration = 0.55; break; // tank, commander
     }
     const points = [from.clone(), to.clone()];
     const geo = new THREE.BufferGeometry().setFromPoints(points);
@@ -160,6 +179,38 @@ export class EffectSystem {
     const line = new THREE.Line(geo, mat);
     this._scene.add(line);
     this._effects.push({ mesh: line, timer: duration, maxTimer: duration, type: 'tracer' });
+  }
+
+  // ── Death burst ───────────────────────────────────────────────────────────
+  _playDeathBurst(unit) {
+    if (!unit?.position) return;
+    const isRed   = unit.team === 'red';
+    const isVehicle = ['tank','flakGun','samMedium','samHeavy','titanTank','empMortar','jammer'].includes(unit.type);
+    const color   = isRed ? (isVehicle ? 0xAA3300 : 0xCC4422) : 0x2255CC;
+    const count   = isVehicle ? 5 : 3;
+    const speed   = isVehicle ? 5 : 3;
+
+    for (let i = 0; i < count; i++) {
+      const dm  = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+      const d   = new THREE.Mesh(this._debrisGeo, dm);
+      d.position.copy(unit.position); d.position.y = Math.max(0.2, unit.position.y);
+      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+      const spd   = speed + Math.random() * speed;
+      const vel   = new THREE.Vector3(Math.cos(angle) * spd, 2 + Math.random() * 3, Math.sin(angle) * spd);
+      this._scene.add(d);
+      this._effects.push({ mesh: d, timer: 0.65, maxTimer: 0.65, type: 'debris', velocity: vel, spinX: (Math.random()-0.5)*10, spinZ: (Math.random()-0.5)*10 });
+    }
+  }
+
+  // ── Radius flash ring ─────────────────────────────────────────────────────
+  _playRadiusFlash(position, radius, color) {
+    const geo = new THREE.RingGeometry(radius * 0.05, radius, 48);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(position.x, 0.08, position.z);
+    this._scene.add(mesh);
+    this._effects.push({ mesh, timer: 0.30, maxTimer: 0.30, type: 'radiusFlash' });
   }
 
   // ── Explosion ─────────────────────────────────────────────────────────────
@@ -255,6 +306,7 @@ export class EffectSystem {
   destroy() {
     bus.off('weapon:impact', this._onImpact);
     bus.off('unit:fire',     this._onFire);
+    bus.off('unit:died',     this._onUnitDied);
     this.clearAll();
     if (this._explosionGeo) this._explosionGeo.dispose();
     if (this._smokeGeo)     this._smokeGeo.dispose();

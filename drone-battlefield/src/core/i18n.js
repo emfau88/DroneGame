@@ -8,8 +8,9 @@ const STRINGS = {
   en: {
     // ── Start screen
     'start.title':       'Drone\nStrike',
-    'start.subtitle':    'You are a combat drone over an active battlefield.\nSurvive. Strike smart. Push the front line forward.',
+    'start.subtitle':    'Officially unauthorised. Budget already exceeded. Good luck.',
     'start.newRun':      'New Run',
+    'start.workshop':    'Workshop',
     'start.missionOverview': 'Mission Overview',
 
     // ── Upgrade screen
@@ -24,6 +25,7 @@ const STRINGS = {
     'runover.time':      'Time',
     'runover.newRun':    'New Run',
     'runover.menu':      'Main Menu',
+    'runover.workshop':  'Workshop',
     'runover.metaTitle': 'Permanent Unlock',
 
     // ── Run Win screen
@@ -32,6 +34,7 @@ const STRINGS = {
     'runwin.time':       'Time',
     'runwin.newRun':     'New Run',
     'runwin.menu':       'Main Menu',
+    'runwin.workshop':   'Workshop',
     'runwin.metaTitle':  'Permanent Unlock',
 
     // ── Objectives
@@ -104,13 +107,53 @@ const STRINGS = {
     'upg.supply_drop.desc':      'Once per map: hold both fire → restore 1 HP',
     'upg.target_lock.name':      'Target Lock',
     'upg.target_lock.desc':      'Missile range +8 units',
+
+    // ── Drone models
+    'drone.wasp.name':   'Wasp',
+    'drone.wasp.desc':   'Standard recon drone. Balanced stats, reliable in all conditions.',
+    'drone.hornet.name': 'Hornet',
+    'drone.hornet.desc': '+3 max HP, armored hull. Slower but survives sustained fire.',
+    'drone.reaper.name': 'Reaper',
+    'drone.reaper.desc': 'Dual cannon, stealth turbines. High damage, low HP — high risk.',
+
+    // ── Workshop screen
+    'ws.sectionDrones':  'Drones',
+    'ws.sectionUpgrades':'Upgrades',
+    'ws.title':          'Workshop',
+    'ws.subtitle':       'Spend coins for permanent upgrades',
+    'ws.continue':       'Continue',
+    'ws.owned':          'OWNED',
+    'ws.missile.name':   'Homing Missile',
+    'ws.missile.desc':   'Unlock MISSILE secondary weapon',
+    'ws.bomb.name':      'Bomb Bay',
+    'ws.bomb.desc':      'Unlock BOMB secondary weapon',
+    'ws.emp.name':       'EMP Cannon',
+    'ws.emp.desc':       'Unlock EMP secondary weapon',
+    'ws.cluster.name':   'Cluster Bomb',
+    'ws.cluster.desc':   'Unlock CLUSTER secondary weapon',
+    'ws.bonusHp.name':   'Armored Hull',
+    'ws.bonusHp.desc':   '+1 max HP at run start',
+    'ws.cooldown.name':  'Fast Reload',
+    'ws.cooldown.desc':  'All cooldowns -10% permanently',
+    'ws.coinBoost.name': 'Scavenger',
+    'ws.coinBoost.desc': '+50% coins from all kills',
+
+    // ── Loadout screen
+    'loadout.title':      'Loadout',
+    'loadout.subtitle':   'Choose up to 2 secondary weapons',
+    'loadout.slot':       'Slot',
+    'loadout.confirm':    'Start Run',
+    'loadout.noWeapons':  'No weapons unlocked yet. Buy them in the Workshop!',
+    'loadout.tabDrone':   'Drone',
+    'loadout.tabWeapons': 'Weapons',
   },
 
   de: {
     // ── Start screen
-    'start.title':       'Drone\nStrike',
-    'start.subtitle':    'Du bist eine Kampfdrohne über einem aktiven Schlachtfeld.\nÜberlebe. Triff klug. Schieb die Front vorwärts.',
+    'start.title':       'Drohnenwahn',
+    'start.subtitle':    'Offiziell nicht genehmigt. Budget bereits überschritten. Viel Erfolg.',
     'start.newRun':      'Neuer Run',
+    'start.workshop':    'Werkstatt',
     'start.missionOverview': 'Missionsübersicht',
 
     // ── Upgrade screen
@@ -125,6 +168,7 @@ const STRINGS = {
     'runover.time':      'Zeit',
     'runover.newRun':    'Neuer Run',
     'runover.menu':      'Hauptmenü',
+    'runover.workshop':  'Werkstatt',
     'runover.metaTitle': 'Dauerhaftes Upgrade',
 
     // ── Run Win screen
@@ -133,6 +177,7 @@ const STRINGS = {
     'runwin.time':       'Zeit',
     'runwin.newRun':     'Neuer Run',
     'runwin.menu':       'Hauptmenü',
+    'runwin.workshop':   'Werkstatt',
     'runwin.metaTitle':  'Dauerhaftes Upgrade',
 
     // ── Objectives
@@ -205,6 +250,45 @@ const STRINGS = {
     'upg.supply_drop.desc':      'Einmal pro Karte: beide Feuer halten → 1 LP wiederherstellen',
     'upg.target_lock.name':      'Zielerfassung',
     'upg.target_lock.desc':      'Raketenreichweite +8 Einheiten',
+
+    // ── Drone models
+    'drone.wasp.name':   'Wasp',
+    'drone.wasp.desc':   'Standard-Drohne. Ausgewogene Werte, zuverlässig in allen Situationen.',
+    'drone.hornet.name': 'Hornet',
+    'drone.hornet.desc': '+3 max LP, gepanzerter Rumpf. Langsamer, aber überlebt Dauerbeschuss.',
+    'drone.reaper.name': 'Reaper',
+    'drone.reaper.desc': 'Doppelkanone, Stealth-Turbinen. Hoher Schaden, wenig LP — hohes Risiko.',
+
+    // ── Workshop screen
+    'ws.sectionDrones':  'Drohnen',
+    'ws.sectionUpgrades':'Upgrades',
+    'ws.title':          'Werkstatt',
+    'ws.subtitle':       'Münzen für dauerhafte Upgrades ausgeben',
+    'ws.continue':       'Weiter',
+    'ws.owned':          'BESITZ',
+    'ws.missile.name':   'Zielsuchrakete',
+    'ws.missile.desc':   'Schaltet RAKETE als Sekundärwaffe frei',
+    'ws.bomb.name':      'Bombenbucht',
+    'ws.bomb.desc':      'Schaltet BOMBE als Sekundärwaffe frei',
+    'ws.emp.name':       'EMP-Kanone',
+    'ws.emp.desc':       'Schaltet EMP als Sekundärwaffe frei',
+    'ws.cluster.name':   'Clusterbombe',
+    'ws.cluster.desc':   'Schaltet CLUSTER als Sekundärwaffe frei',
+    'ws.bonusHp.name':   'Gepanzerter Rumpf',
+    'ws.bonusHp.desc':   '+1 max LP beim Rundenstart',
+    'ws.cooldown.name':  'Schnelles Nachladen',
+    'ws.cooldown.desc':  'Alle Abklingzeiten dauerhaft -10%',
+    'ws.coinBoost.name': 'Plünderer',
+    'ws.coinBoost.desc': '+50% Münzen aus allen Kills',
+
+    // ── Loadout screen
+    'loadout.title':      'Ausrüstung',
+    'loadout.subtitle':   'Bis zu 2 Sekundärwaffen wählen',
+    'loadout.slot':       'Slot',
+    'loadout.confirm':    'Run starten',
+    'loadout.noWeapons':  'Noch keine Waffen freigeschaltet. Kaufe sie in der Werkstatt!',
+    'loadout.tabDrone':   'Drohne',
+    'loadout.tabWeapons': 'Waffen',
   },
 };
 

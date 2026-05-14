@@ -5,12 +5,27 @@ const CENTER_TEXT_DURATION = 2.0;
 const TOOLTIP_FLAG_KEY     = 'drone_strike_flak_tip_seen';
 
 const KILL_SOURCE_LABELS = {
-  flakGun:    'SHOT DOWN BY FLAK',
-  enemyDrone: 'RAMMED BY ENEMY DRONE',
-  tank:       'DESTROYED BY TANK AA',
-  rocket:     'HIT BY ROCKET AA',
-  commander:  'HIT BY COMMANDER AA',
+  flakGun:        'ABGESCHOSSEN — Formular B-7 ausfüllen',
+  samMedium:      'SAM-M TREFFER — Schaden: klassifiziert',
+  samHeavy:       'SAM-H TREFFER — Abstand wäre empfohlen gewesen',
+  enemyDrone:     'KOLLISION MIT FEINDDROHNE — Ironie vermerkt',
+  tank:           'PANZER-AA TREFFER — Handbuch sagt: Abstand halten',
+  rocket:         'RAKETENTREFFER — Ausweichmanöver: zu spät',
+  rocketInfantry: 'SCHULTERRAKETE — Budget für Panzerung: überdenken',
+  commander:      'KOMMANDANTEN-FEUER — Respekt, irgendwie',
+  empMortar:      'EMP-TREFFER — Systeme deaktiviert. Kurz.',
+  jammer:         'NAVIGATION GESTÖRT — GPS: hoffnungsoptimistisch',
+  titanTank:      'TITAN-BESCHUSS — €2.847.000 Schaden. Erneut.',
 };
+
+// Rotating death comments indexed by death count (0-based, wraps after 4)
+const DEATH_COMMENTS = [
+  'Drohne ausgefallen. Kostenvoranschlag folgt.',
+  'Kontakt verloren. Offiziell: technisches Versagen.',
+  'Formular B-7 liegt beim Sachbearbeiter. Er ist im Urlaub.',
+  'Drohne verloren. Budget-Meeting anberaumt.',
+  'Bitte Absturzprotokoll in dreifacher Ausfertigung einreichen.',
+];
 
 /**
  * HUD — in-game overlay. Manages all 2D feedback:
@@ -29,13 +44,18 @@ export class HUD {
     this._mapNameEl      = null;
     this._objStatusEl    = null;
 
-    this._primaryLabelEl         = null;
-    this._primaryCooldownEl      = null;
-    this._primaryCooldownFillEl  = null;
-    this._secondaryBtnEl         = null;
-    this._secondaryLabelEl       = null;
-    this._secondaryCooldownEl    = null;
+    this._primaryLabelEl          = null;
+    this._primaryCooldownEl       = null;
+    this._primaryCooldownFillEl   = null;
+    this._secondaryBtnEl          = null;
+    this._secondaryLabelEl        = null;
+    this._secondaryCooldownEl     = null;
     this._secondaryCooldownFillEl = null;
+    this._secondary2BtnEl         = null;
+    this._secondary2LabelEl       = null;
+    this._secondary2CooldownEl    = null;
+    this._secondary2CooldownFillEl = null;
+    this._coinsEl                 = null;
 
     this._centerTextEl  = null;
     this._nearMissEl    = null;
@@ -79,6 +99,15 @@ export class HUD {
     this._onUnitFired      = null;
     this._onBattleDroneHit = null;
     this._onDroneApproach  = null;
+    this._onDroneJammed    = null;
+    this._onEmpFreeze      = null;
+    this._jamTextActive    = false;
+
+    this._deathCount              = 0;  // deaths this session
+    this._commentEl               = null;
+    this._commentTimer            = 0;
+    this._titanCommentedThisMap   = false;
+    this._onTitanHit              = null;
   }
 
   init(bus_) {
@@ -93,13 +122,18 @@ export class HUD {
     this._mapNameEl          = document.getElementById('map-name');
     this._objStatusEl        = document.getElementById('objective-status');
 
-    this._primaryLabelEl         = document.getElementById('primary-weapon-label');
-    this._primaryCooldownEl      = document.getElementById('primary-cooldown-label');
-    this._primaryCooldownFillEl  = document.getElementById('primary-cooldown-fill');
-    this._secondaryBtnEl         = document.getElementById('fire-secondary-btn');
-    this._secondaryLabelEl       = document.getElementById('secondary-weapon-label');
-    this._secondaryCooldownEl    = document.getElementById('secondary-cooldown-label');
-    this._secondaryCooldownFillEl = document.getElementById('secondary-cooldown-fill');
+    this._primaryLabelEl           = document.getElementById('primary-weapon-label');
+    this._primaryCooldownEl        = document.getElementById('primary-cooldown-label');
+    this._primaryCooldownFillEl    = document.getElementById('primary-cooldown-fill');
+    this._secondaryBtnEl           = document.getElementById('fire-secondary-btn');
+    this._secondaryLabelEl         = document.getElementById('secondary-weapon-label');
+    this._secondaryCooldownEl      = document.getElementById('secondary-cooldown-label');
+    this._secondaryCooldownFillEl  = document.getElementById('secondary-cooldown-fill');
+    this._secondary2BtnEl          = document.getElementById('fire-secondary2-btn');
+    this._secondary2LabelEl        = document.getElementById('secondary2-weapon-label');
+    this._secondary2CooldownEl     = document.getElementById('secondary2-cooldown-label');
+    this._secondary2CooldownFillEl = document.getElementById('secondary2-cooldown-fill');
+    this._coinsEl                  = document.getElementById('hud-coins');
 
     this._centerTextEl  = document.getElementById('center-text');
     this._nearMissEl    = document.getElementById('near-miss-text');
@@ -109,6 +143,7 @@ export class HUD {
     this._hitVignetteEl  = document.getElementById('hit-vignette');
     this._hullBreachEl   = document.getElementById('hull-breach-text');
     this._droneWarningEl = document.getElementById('drone-warning');
+    this._commentEl      = document.getElementById('death-comment');
     this._hitArrows = {
       top:    document.getElementById('hit-arrow-top'),
       bottom: document.getElementById('hit-arrow-bottom'),
@@ -120,6 +155,7 @@ export class HUD {
     this._onDroneDead = () => {
       this.setHP(0);
       this._showKillSource();
+      this._showDeathComment();
     };
 
     // battle:droneHit carries source position for directional indicator
@@ -141,11 +177,31 @@ export class HUD {
       if (team === 'red') this._lastHitSourceType = type || 'flakGun';
     };
 
-    bus_.on('drone:hit',        this._onDroneHit);
-    bus_.on('drone:dead',       this._onDroneDead);
-    bus_.on('battle:droneHit',  this._onBattleDroneHit);
-    bus_.on('unit:fire',        this._onUnitFired);
+    this._onDroneJammed = ({ active }) => {
+      if (active) this.showCenterText('⚡ CONTROLS JAMMED', 99); // persistent until cleared
+      else this._clearJamText();
+    };
+
+    this._onEmpFreeze = () => {
+      this.showCenterText('⚡ WEAPONS DISABLED', 2.2);
+    };
+
+    this._onTitanHit = () => {
+      // Only comment once per map — after that the player gets the point
+      if (!this._titanCommentedThisMap) {
+        this._titanCommentedThisMap = true;
+        this._showComment('Titan-Klasse. Das Handbuch sagt: Abstand halten.', 3.5);
+      }
+    };
+
+    bus_.on('drone:hit',           this._onDroneHit);
+    bus_.on('drone:dead',          this._onDroneDead);
+    bus_.on('battle:droneHit',     this._onBattleDroneHit);
+    bus_.on('unit:fire',           this._onUnitFired);
     bus_.on('enemyDrone:approach', this._onDroneApproach);
+    bus_.on('drone:jammed',        this._onDroneJammed);
+    bus_.on('drone:empFreeze',     this._onEmpFreeze);
+    bus_.on('battle:titanHit',     this._onTitanHit);
   }
 
   // ── HP ────────────────────────────────────────────────────────────────────
@@ -252,25 +308,62 @@ export class HUD {
 
   updateSecondary(weaponType, cooldownRemaining, cooldownMax) {
     if (!this._secondaryBtnEl) return;
-
     if (!weaponType) {
-      this._secondaryBtnEl.classList.remove('unlocked');
+      this._secondaryBtnEl.classList.remove('unlocked', 'weapon-ready');
       return;
     }
-
     this._secondaryBtnEl.classList.add('unlocked');
     if (this._secondaryLabelEl) {
       this._secondaryLabelEl.textContent = weaponType.toUpperCase();
     }
+    const isReady = cooldownRemaining <= 0;
     if (this._secondaryCooldownEl) {
-      this._secondaryCooldownEl.textContent = cooldownRemaining > 0
-        ? `${cooldownRemaining.toFixed(1)}s`
-        : 'READY';
+      this._secondaryCooldownEl.textContent = isReady ? 'READY' : `${cooldownRemaining.toFixed(1)}s`;
     }
     if (this._secondaryCooldownFillEl) {
       const pct = cooldownMax > 0 ? (cooldownRemaining / cooldownMax) * 100 : 0;
       this._secondaryCooldownFillEl.style.height = `${Math.max(0, Math.min(100, pct))}%`;
     }
+    // Flash green when transitioning to ready
+    const wasReady = this._secondaryBtnEl.classList.contains('weapon-ready');
+    if (isReady && !wasReady) {
+      this._secondaryBtnEl.classList.add('weapon-ready', 'ready-flash');
+      setTimeout(() => this._secondaryBtnEl?.classList.remove('ready-flash'), 600);
+    } else if (!isReady) {
+      this._secondaryBtnEl.classList.remove('weapon-ready');
+    }
+  }
+
+  updateSecondary2(weaponType, cooldownRemaining, cooldownMax) {
+    if (!this._secondary2BtnEl) return;
+    if (!weaponType) {
+      this._secondary2BtnEl.style.display = 'none';
+      this._secondary2BtnEl.classList.remove('weapon-ready');
+      return;
+    }
+    this._secondary2BtnEl.style.display = 'flex';
+    if (this._secondary2LabelEl) {
+      this._secondary2LabelEl.textContent = weaponType.toUpperCase();
+    }
+    const isReady = cooldownRemaining <= 0;
+    if (this._secondary2CooldownEl) {
+      this._secondary2CooldownEl.textContent = isReady ? 'READY' : `${cooldownRemaining.toFixed(1)}s`;
+    }
+    if (this._secondary2CooldownFillEl) {
+      const pct = cooldownMax > 0 ? (cooldownRemaining / cooldownMax) * 100 : 0;
+      this._secondary2CooldownFillEl.style.height = `${Math.max(0, Math.min(100, pct))}%`;
+    }
+    const wasReady = this._secondary2BtnEl.classList.contains('weapon-ready');
+    if (isReady && !wasReady) {
+      this._secondary2BtnEl.classList.add('weapon-ready', 'ready-flash');
+      setTimeout(() => this._secondary2BtnEl?.classList.remove('ready-flash'), 600);
+    } else if (!isReady) {
+      this._secondary2BtnEl.classList.remove('weapon-ready');
+    }
+  }
+
+  setCoins(amount) {
+    if (this._coinsEl) this._coinsEl.textContent = amount;
   }
 
   // ── Near miss / center text ───────────────────────────────────────────────
@@ -289,6 +382,24 @@ export class HUD {
   }
 
   /**
+   * Show briefing lines one after another, 1.1s per line.
+   * Lines are shown in the center text element sequentially.
+   */
+  showBriefing(lines) {
+    if (!lines?.length) return;
+    let idx = 0;
+    const showNext = () => {
+      if (idx >= lines.length) return;
+      this.showCenterText(lines[idx], 1.0);
+      idx++;
+      if (idx < lines.length) {
+        setTimeout(showNext, 1100);
+      }
+    };
+    showNext();
+  }
+
+  /**
    * Start the flak tutorial tooltip sequence.
    * Only fires if the player hasn't seen it before (localStorage gate).
    */
@@ -302,10 +413,23 @@ export class HUD {
 
   _showKillSource() {
     if (!this._killSourceEl || !this._lastHitSourceType) return;
-    const label = KILL_SOURCE_LABELS[this._lastHitSourceType] || 'DRONE DESTROYED';
+    const label = KILL_SOURCE_LABELS[this._lastHitSourceType] || 'DROHNE AUSGEFALLEN — Ursache: unklar';
     this._killSourceEl.textContent = label;
     this._killSourceEl.style.opacity = '1';
-    this._killSourceTimer = 3.0;
+    this._killSourceTimer = 4.0;
+  }
+
+  _showDeathComment() {
+    const comment = DEATH_COMMENTS[this._deathCount % DEATH_COMMENTS.length];
+    this._deathCount++;
+    this._showComment(comment, 4.5);
+  }
+
+  _showComment(text, duration) {
+    if (!this._commentEl) return;
+    this._commentEl.textContent = text;
+    this._commentEl.style.opacity = '1';
+    this._commentTimer = duration;
   }
 
   /** Called by Game each frame so HUD can compute directional indicators. */
@@ -334,6 +458,13 @@ export class HUD {
       this._killSourceTimer -= dt;
       if (this._killSourceTimer <= 0 && this._killSourceEl) {
         this._killSourceEl.style.opacity = '0';
+      }
+    }
+
+    if (this._commentTimer > 0) {
+      this._commentTimer -= dt;
+      if (this._commentTimer <= 0 && this._commentEl) {
+        this._commentEl.style.opacity = '0';
       }
     }
 
@@ -398,6 +529,13 @@ export class HUD {
   show() { if (this._hudEl) this._hudEl.style.display = 'flex'; }
   hide() { if (this._hudEl) this._hudEl.style.display = 'none'; }
 
+  /** Call at the start of each new map to reset per-map state. */
+  resetForMap() {
+    this._titanCommentedThisMap = false;
+    if (this._commentEl) this._commentEl.style.opacity = '0';
+    this._commentTimer = 0;
+  }
+
   destroy() {
     if (this._bus) {
       this._bus.off('drone:hit',           this._onDroneHit);
@@ -405,6 +543,16 @@ export class HUD {
       this._bus.off('battle:droneHit',     this._onBattleDroneHit);
       this._bus.off('unit:fire',           this._onUnitFired);
       this._bus.off('enemyDrone:approach', this._onDroneApproach);
+      this._bus.off('drone:jammed',        this._onDroneJammed);
+      this._bus.off('drone:empFreeze',     this._onEmpFreeze);
+      this._bus.off('battle:titanHit',     this._onTitanHit);
+    }
+  }
+
+  _clearJamText() {
+    if (this._centerTextEl && this._centerTextEl.textContent.includes('JAMMED')) {
+      this._centerTextEl.style.opacity = '0';
+      this._centerTimer = 0;
     }
   }
 }

@@ -24,9 +24,11 @@ export class MapGenerator {
     const units = [];
     const waves = [];
 
-    // Blue ally units — use template blueForce if defined, else default
-    const blueUnits = this._generateBlueUnits(template.blueForce);
-    units.push(...blueUnits);
+    // Blue ally units — skip entirely if noBlueForce is set
+    if (!template.noBlueForce) {
+      const blueUnits = this._generateBlueUnits(template.blueForce);
+      units.push(...blueUnits);
+    }
 
     // Red enemy units split across waves
     const totalWaves = template.waves || 1;
@@ -87,12 +89,19 @@ export class MapGenerator {
       return Math.ceil(base * waveScale);
     };
 
-    const soldierCount    = count('soldier');
-    const rocketCount     = count('rocket');
-    const tankCount       = count('tank');
-    const flakCount       = count('flakGun');
-    const commanderCount  = count('commander');
-    const enemyDroneCount = count('enemyDrone');
+    const soldierCount        = count('soldier');
+    const rocketCount         = count('rocket');
+    const tankCount           = count('tank');
+    const flakCount           = count('flakGun');
+    const commanderCount      = count('commander');
+    const enemyDroneCount     = count('enemyDrone');
+    const rocketInfantryCount = count('rocketInfantry');
+    const samMediumCount      = count('samMedium');
+    const samHeavyCount       = count('samHeavy');
+    const jammerCount         = count('jammer');
+    const empMortarCount      = count('empMortar');
+    // Titan Tank only spawns in final wave
+    const titanTankCount      = (waveNumber === totalWaves) ? count('titanTank') : 0;
 
     // Spread soldiers across lanes
     for (let i = 0; i < soldierCount; i++) {
@@ -112,14 +121,46 @@ export class MapGenerator {
       units.push({ type: 'tank', team: 'red', lane, x: ENEMY_X_START + randRange(0, ENEMY_X_SPREAD) });
     }
 
-    // Flak guns — static, placed deep in enemy territory
+    // Rocket infantry — scattered mid-depth, all lanes
+    for (let i = 0; i < rocketInfantryCount; i++) {
+      const lane = LANES[i % LANES.length];
+      units.push({ type: 'rocketInfantry', team: 'red', lane, x: ENEMY_X_START + randRange(2, ENEMY_X_SPREAD) });
+    }
+
+    // Off-center lanes only — avoids overlapping HQ at Z=0 and spreads AA visually
+    const AA_LANES = [-8, -4, 4, 8];
+
+    // SAM Light (flakGun) — static, deep in enemy territory, max X=34 to stay clear of HQ
     for (let i = 0; i < flakCount; i++) {
-      const lane = LANES[randInt(0, LANES.length - 1)];
-      const x = ENEMY_X_START + 8 + randRange(0, 8);
-      const flakConfig = { type: 'flakGun', team: 'red', lane, x };
-      // Tutorial map: slightly reduced range (still accounts for drone altitude of 12)
-      if (template.tutorialMap) flakConfig.aaRangeOverride = 16;
-      units.push(flakConfig);
+      const lane = AA_LANES[i % AA_LANES.length];
+      const x = ENEMY_X_START + 6 + randRange(0, 6); // 28–34
+      const cfg = { type: 'flakGun', team: 'red', lane, x };
+      if (template.tutorialMap) cfg.aaRangeOverride = 16;
+      units.push(cfg);
+    }
+
+    // SAM Medium — slightly deeper than SAM Light
+    for (let i = 0; i < samMediumCount; i++) {
+      const lane = AA_LANES[i % AA_LANES.length];
+      units.push({ type: 'samMedium', team: 'red', lane, x: ENEMY_X_START + 8 + randRange(0, 6) }); // 30–36
+    }
+
+    // SAM Heavy — deepest back line
+    for (let i = 0; i < samHeavyCount; i++) {
+      const lane = AA_LANES[i % AA_LANES.length];
+      units.push({ type: 'samHeavy', team: 'red', lane, x: ENEMY_X_START + 10 + randRange(0, 6) }); // 32–38 — use flanks only
+    }
+
+    // Jammers — static, mid-field, staggered lanes
+    for (let i = 0; i < jammerCount; i++) {
+      const lane = AA_LANES[i % AA_LANES.length];
+      units.push({ type: 'jammer', team: 'red', lane, x: ENEMY_X_START + 6 + randRange(0, 8) });
+    }
+
+    // EMP Mortars — back-line like SAMs
+    for (let i = 0; i < empMortarCount; i++) {
+      const lane = AA_LANES[i % AA_LANES.length];
+      units.push({ type: 'empMortar', team: 'red', lane, x: ENEMY_X_START + 6 + randRange(0, 8) });
     }
 
     // Commanders — deeper back, random lane
@@ -132,6 +173,11 @@ export class MapGenerator {
     for (let i = 0; i < enemyDroneCount; i++) {
       const lane = LANES[randInt(0, LANES.length - 1)];
       units.push({ type: 'enemyDrone', team: 'red', lane, x: ENEMY_X_START + randRange(4, 16), y: 10 });
+    }
+
+    // Titan Tank — single boss, center lane, deepest position
+    for (let i = 0; i < titanTankCount; i++) {
+      units.push({ type: 'titanTank', team: 'red', lane: 0, x: ENEMY_X_START + ENEMY_X_SPREAD + 4 });
     }
 
     return units;

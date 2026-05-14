@@ -20,6 +20,8 @@ const SHIELD_DURATION = 1.5;
 const FLASH_INTERVAL  = 0.08;
 
 // Shared drone geometry — built once
+const _groundMarkerGeo = new THREE.RingGeometry(0.55, 0.75, 24);
+const _groundMarkerMat = new THREE.MeshBasicMaterial({ color: 0x00CCFF, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
 const _bodyGeo      = new THREE.CylinderGeometry(0.38, 0.44, 0.18, 10);  // flat hex body
 const _bodyTopGeo   = new THREE.CylinderGeometry(0.22, 0.38, 0.10, 10);  // tapered top dome
 const _cameraGeo    = new THREE.SphereGeometry(0.10, 8, 6);               // camera ball underneath
@@ -28,11 +30,11 @@ const _motorGeo     = new THREE.CylinderGeometry(0.11, 0.11, 0.14, 8);   // moto
 const _rotorGeo     = new THREE.CylinderGeometry(0.32, 0.32, 0.025, 16); // rotor disk — 16 sides = smooth circle
 const _ledGeo       = new THREE.SphereGeometry(0.045, 5, 4);              // status LED
 
-const _bodyMat    = new THREE.MeshStandardMaterial({ color: 0x1A1A2A, roughness: 0.55, metalness: 0.6 });
-const _accentMat  = new THREE.MeshStandardMaterial({ color: 0x2A2A3E, roughness: 0.45, metalness: 0.7 });
-const _motorMat   = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.4,  metalness: 0.8 });
-const _rotorMat   = new THREE.MeshStandardMaterial({ color: 0x333348, roughness: 0.5,  metalness: 0.3, transparent: true, opacity: 0.82 });
-const _cameraMatD = new THREE.MeshStandardMaterial({ color: 0x0A0A14, roughness: 0.1,  metalness: 0.9 });
+const _bodyMat    = new THREE.MeshStandardMaterial({ color: 0x2E3050, roughness: 0.55, metalness: 0.6, emissive: new THREE.Color(0x080812) });
+const _accentMat  = new THREE.MeshStandardMaterial({ color: 0x3A3A58, roughness: 0.45, metalness: 0.7 });
+const _motorMat   = new THREE.MeshStandardMaterial({ color: 0x222230, roughness: 0.4,  metalness: 0.8 });
+const _rotorMat   = new THREE.MeshStandardMaterial({ color: 0x444460, roughness: 0.5,  metalness: 0.3, transparent: true, opacity: 0.82 });
+const _cameraMatD = new THREE.MeshStandardMaterial({ color: 0x181820, roughness: 0.1,  metalness: 0.9 });
 const _ledBlueMat = new THREE.MeshBasicMaterial({ color: 0x44AAFF });
 const _ledRedMat  = new THREE.MeshBasicMaterial({ color: 0xFF3322 });
 
@@ -99,15 +101,25 @@ export class Drone extends Entity {
     this.velocity = new THREE.Vector3();
 
     // Weapons
-    this.primaryWeapon = WEAPON_CONFIGS.cannon;
-    this.secondaryWeapon = null;
-    this.primaryCooldown = 0;
-    this.secondaryCooldown = 0;
+    this.primaryWeapon   = WEAPON_CONFIGS.cannon;
+    this.secondaryWeapon  = null;  // slot 1
+    this.secondaryWeapon2 = null;  // slot 2
+    this.primaryCooldown   = 0;
+    this.secondaryCooldown  = 0;
+    this.secondaryCooldown2 = 0;
 
     // Upgrade modifiers (applied by RogueliteManager)
     this.damageMultiplier = 1.0;
     this.speedMultiplier  = 1.0;
     this.cooldownMultiplier = 1.0;
+
+    // Drone model (set by RogueliteManager)
+    this.dualCannon   = false;  // Reaper: fires 2 cannon shots simultaneously
+    this.droneModelId = 'wasp';
+
+    // Enemy disruption effects
+    this._jammerActive = false;        // set by BattleSystem jammer units
+    this._empWeaponFreezeTimer = 0;    // counts down; > 0 = weapons locked
 
     // Upgrade state (reset by RogueliteManager.applyAllUpgradesToDrone)
     this._upgrades = {};
@@ -136,6 +148,8 @@ export class Drone extends Entity {
   startMap() {
     if (this._upgrades?.blitzMode) this._blitzTimer = 10;
     if (this._upgrades?.supplyDrop) this._supplyDropUsed = false;
+    this._jammerActive = false;
+    this._empWeaponFreezeTimer = 0;
   }
 
   /** Called by Game when a red unit dies, to handle killstreak. */
@@ -148,8 +162,9 @@ export class Drone extends Entity {
       bus.emit('drone:killstreakReady', {});
     }
     if (this._upgrades?.scavenger && unitType === 'commander') {
-      this.primaryCooldown   = Math.max(0, this.primaryCooldown   - 1.0);
-      this.secondaryCooldown = Math.max(0, this.secondaryCooldown - 1.0);
+      this.primaryCooldown    = Math.max(0, this.primaryCooldown    - 1.0);
+      this.secondaryCooldown  = Math.max(0, this.secondaryCooldown  - 1.0);
+      this.secondaryCooldown2 = Math.max(0, this.secondaryCooldown2 - 1.0);
       bus.emit('drone:scavenger', {});
     }
   }
@@ -212,6 +227,11 @@ export class Drone extends Entity {
       this.group.add(rotor);
       this._rotors.push(rotor);
     }
+
+    // Ground position marker — flat ring projected at world Y≈0.06
+    this._groundMarker = new THREE.Mesh(_groundMarkerGeo, _groundMarkerMat);
+    this._groundMarker.rotation.x = -Math.PI / 2;
+    this.scene.add(this._groundMarker);
   }
 
   /**
@@ -234,6 +254,11 @@ export class Drone extends Entity {
     // Spin rotors
     for (const rotor of this._rotors) {
       rotor.rotation.y += dt * 18;
+    }
+
+    // Keep ground marker below drone
+    if (this._groundMarker) {
+      this._groundMarker.position.set(this.position.x, 0.06, this.position.z);
     }
   }
 
@@ -306,9 +331,12 @@ export class Drone extends Entity {
     const speed = DRONE_SPEED * this._effectiveSpeedMultiplier();
     const alpha = clamp(dt / INERTIA, 0, 1);
 
+    // Jammer: invert controls within radius
+    const jamSign = this._jammerActive ? -1 : 1;
+
     // Soft boundary — push back near edges
-    let targetVx = input.x * speed;
-    let targetVz = input.y * speed;
+    let targetVx = input.x * speed * jamSign;
+    let targetVz = input.y * speed * jamSign;
 
     const bx = Math.abs(this.position.x) / BOUNDS_X;
     const bz = Math.abs(this.position.z) / BOUNDS_Z;
@@ -348,15 +376,30 @@ export class Drone extends Entity {
   }
 
   _updateWeapons(dt, input, units) {
-    if (this.primaryCooldown > 0) this.primaryCooldown = Math.max(0, this.primaryCooldown - dt);
-    if (this.secondaryCooldown > 0) this.secondaryCooldown = Math.max(0, this.secondaryCooldown - dt);
+    if (this.primaryCooldown   > 0) this.primaryCooldown   = Math.max(0, this.primaryCooldown   - dt);
+    if (this.secondaryCooldown  > 0) this.secondaryCooldown  = Math.max(0, this.secondaryCooldown  - dt);
+    if (this.secondaryCooldown2 > 0) this.secondaryCooldown2 = Math.max(0, this.secondaryCooldown2 - dt);
+
+    // EMP freeze: weapons locked down
+    if (this._empWeaponFreezeTimer > 0) {
+      this._empWeaponFreezeTimer = Math.max(0, this._empWeaponFreezeTimer - dt);
+      return;
+    }
 
     if (input.firePrimary && this.primaryCooldown <= 0 && this.primaryWeapon) {
       this._fireWeapon(this.primaryWeapon, units, 'primary');
+      // Reaper dual cannon: fire a second shot offset slightly
+      if (this.dualCannon) {
+        this._fireWeapon(this.primaryWeapon, units, 'primary_dual');
+      }
     }
 
     if (input.fireSecondary && this.secondaryCooldown <= 0 && this.secondaryWeapon) {
       this._fireWeapon(this.secondaryWeapon, units, 'secondary');
+    }
+
+    if (input.fireSecondary2 && this.secondaryCooldown2 <= 0 && this.secondaryWeapon2) {
+      this._fireWeapon(this.secondaryWeapon2, units, 'secondary2');
     }
   }
 
@@ -370,6 +413,10 @@ export class Drone extends Entity {
     const cooldown = weapon.cooldownDuration * this._effectiveCooldownMultiplier();
     if (slot === 'primary') {
       this.primaryCooldown = cooldown;
+    } else if (slot === 'primary_dual') {
+      // second cannon shot — cooldown already set by 'primary', skip
+    } else if (slot === 'secondary2') {
+      this.secondaryCooldown2 = cooldown;
     } else {
       this.secondaryCooldown = cooldown;
     }
@@ -388,9 +435,12 @@ export class Drone extends Entity {
       bus.emit('drone:overchargeUsed', {});
     }
 
+    const firePos = this.position.clone();
+    if (slot === 'primary_dual') firePos.x += 0.6; // offset second barrel slightly
+
     bus.emit('weapon:dronefire', {
       type: weapon.type,
-      dronePosition: this.position.clone(),
+      dronePosition: firePos,
       target: target || null,
       weapon,
       damageMultiplier: shotMultiplier,
@@ -411,8 +461,11 @@ export class Drone extends Entity {
     let best = null;
     let bestScore = Infinity;
 
-    // Priority order for missile targeting
-    const MISSILE_PRIORITY = { tank: 0, commander: 1, rocket: 2, soldier: 3, flakGun: 0 };
+    // Priority order for missile targeting (lower = higher priority)
+    const MISSILE_PRIORITY = {
+      tank: 0, flakGun: 0, samMedium: 0, samHeavy: 0, empMortar: 1,
+      commander: 1, jammer: 2, rocketInfantry: 2, rocket: 2, soldier: 3,
+    };
 
     for (const unit of units) {
       if (!unit.alive || unit.state === 'dead' || unit.team !== 'red') continue;
@@ -508,6 +561,14 @@ export class Drone extends Entity {
     }
   }
 
+  destroy() {
+    if (this._groundMarker) {
+      this.scene.remove(this._groundMarker);
+      this._groundMarker = null;
+    }
+    super.destroy();
+  }
+
   /** World position directly below the drone — used for bombs. */
   getBombPosition() {
     return new THREE.Vector3(this.position.x, 0, this.position.z);
@@ -519,10 +580,23 @@ export class Drone extends Entity {
     this.primaryCooldown = 0;
   }
 
-  /** Unlock secondary weapon slot. */
-  setSecondaryWeapon(type) {
-    this.secondaryWeapon = type ? (WEAPON_CONFIGS[type] || null) : null;
-    this.secondaryCooldown = 0;
+  /** Set secondary weapon in slot 1 or 2. */
+  setSecondaryWeapon(type, slot = 1) {
+    if (slot === 2) {
+      this.secondaryWeapon2  = type ? (WEAPON_CONFIGS[type] || null) : null;
+      this.secondaryCooldown2 = 0;
+    } else {
+      this.secondaryWeapon  = type ? (WEAPON_CONFIGS[type] || null) : null;
+      this.secondaryCooldown = 0;
+    }
+  }
+
+  /** Clear both secondary weapon slots. */
+  clearSecondaryWeapons() {
+    this.secondaryWeapon   = null;
+    this.secondaryWeapon2  = null;
+    this.secondaryCooldown  = 0;
+    this.secondaryCooldown2 = 0;
   }
 
   /** Expose weapon configs for external use (e.g. HUD, upgrades). */

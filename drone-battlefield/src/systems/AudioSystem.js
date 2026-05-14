@@ -20,31 +20,47 @@ export class AudioSystem {
     this._onUIClick  = null;
     this._onWin      = null;
     this._onLoss     = null;
+    this._onUnitDied = null;
   }
 
   init() {
-    // Wire bus listeners — audio plays immediately on event
-    this._onImpact  = ({ type }) => {
+    // weapon:impact — drone weapon hits
+    this._onImpact = ({ type }) => {
       const t = (type || '').toLowerCase();
       if (t === 'bomb' || t === 'cluster') this.playExplosion(1);
-      if (t === 'emp')    this.playEMP();
-      if (t === 'cannon') this.playGunshot();
+      if (t === 'emp')     this.playEMP();
+      if (t === 'cannon')  this.playCannonPew();
       if (t === 'missile') this.playExplosion(0.6);
     };
-    this._onGunshot  = ({ type }) => {
-      // Ground unit fire
-      if (!type || type === 'flak') {
-        this.playGunshot();
+
+    // weapon:dronefire — drone fires (launch sounds)
+    this._onDroneFire = ({ type }) => {
+      const t = (type || '').toLowerCase();
+      if (t === 'missile') this.playRocketLaunch(0.5);
+      if (t === 'emp')     this.playEMPCharge();
+    };
+
+    // unit:fire — enemy ground units shoot
+    this._onGunshot = ({ type, unitType }) => {
+      if (type === 'emp') { this.playFlak(0.4); return; } // EMP mortar lob
+      switch (unitType) {
+        case 'flakGun':   this.playFlak(0.7);          break;
+        case 'samMedium': this.playRocketLaunch(0.55);  break;
+        case 'samHeavy':  this.playRocketLaunch(0.75);  break;
+        case 'titanTank': this.playTitanFire();          break;
+        default:          this.playGunshot();            break; // soldier, tank, etc.
       }
     };
-    this._onUIClick  = () => this.playUIClick();
-    this._onWin      = () => this.playLevelWin();
-    this._onLoss     = () => this.playLevelLoss();
 
-    bus.on('weapon:impact', this._onImpact);
-    bus.on('unit:fire',     this._onGunshot);
-    bus.on('ui:click',      this._onUIClick);
-    bus.on('level:ended',   ({ result }) => result === 'win' ? this.playLevelWin() : this.playLevelLoss());
+    this._onUIClick = () => this.playUIClick();
+
+    this._onUnitDied = ({ unit }) => this.playUnitDeath(unit?.type);
+    bus.on('weapon:impact',   this._onImpact);
+    bus.on('weapon:dronefire', this._onDroneFire);
+    bus.on('unit:fire',        this._onGunshot);
+    bus.on('unit:died',        this._onUnitDied);
+    bus.on('ui:click',         this._onUIClick);
+    bus.on('level:ended',      ({ result }) => result === 'win' ? this.playLevelWin() : this.playLevelLoss());
   }
 
   /** Called by Game on first pointer interaction to unlock AudioContext. */
@@ -203,6 +219,134 @@ export class AudioSystem {
     noise.stop(t + 0.025);
   }
 
+  /** Drone cannon: bright high "pew" — clearly player-owned, distinct from enemy fire. */
+  playCannonPew() {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1800, t);
+    osc.frequency.exponentialRampToValueAtTime(600, t + 0.045);
+    const g = this._gain(0);
+    osc.connect(g);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.09, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    osc.start(t);
+    osc.stop(t + 0.055);
+  }
+
+  /** Flak gun metallic bang — short mid-pitch crack. */
+  playFlak(vol = 0.7) {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    // Tonal thud: mid-freq oscillator drops fast
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(320, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.06);
+    const oscG = this._gain(0);
+    osc.connect(oscG);
+    oscG.gain.setValueAtTime(0, t);
+    oscG.gain.linearRampToValueAtTime(vol * 0.35, t + 0.003);
+    oscG.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    osc.start(t); osc.stop(t + 0.08);
+
+    // Metallic crack noise
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this._noiseBuffer();
+    const hpf = this.ctx.createBiquadFilter();
+    hpf.type = 'highpass'; hpf.frequency.value = 2200;
+    const ng = this._gain(0);
+    noise.connect(hpf); hpf.connect(ng);
+    ng.gain.setValueAtTime(0, t);
+    ng.gain.linearRampToValueAtTime(vol * 0.25, t + 0.002);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    noise.start(t); noise.stop(t + 0.05);
+  }
+
+  /** Rocket/SAM launch: rising hiss + whoosh tail. vol 0→1. */
+  playRocketLaunch(vol = 0.6) {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    // Rising hiss
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this._noiseBuffer();
+    const bpf = this.ctx.createBiquadFilter();
+    bpf.type = 'bandpass';
+    bpf.frequency.setValueAtTime(400, t);
+    bpf.frequency.exponentialRampToValueAtTime(2400, t + 0.12);
+    bpf.Q.value = 1.2;
+    const ng = this._gain(0);
+    noise.connect(bpf); bpf.connect(ng);
+    ng.gain.setValueAtTime(0, t);
+    ng.gain.linearRampToValueAtTime(vol * 0.45, t + 0.015);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    noise.start(t); noise.stop(t + 0.25);
+
+    // Low ignition thud underneath
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
+    const og = this._gain(0);
+    osc.connect(og);
+    og.gain.setValueAtTime(0, t);
+    og.gain.linearRampToValueAtTime(vol * 0.3, t + 0.005);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    osc.start(t); osc.stop(t + 0.14);
+  }
+
+  /** EMP charge-up: rising whine before activation. */
+  playEMPCharge() {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, t);
+    osc.frequency.exponentialRampToValueAtTime(4000, t + 0.18);
+    const g = this._gain(0);
+    osc.connect(g);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.18, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    osc.start(t); osc.stop(t + 0.22);
+  }
+
+  /** Titan cannon: deep heavy boom — clearly a boss-class threat. */
+  playTitanFire() {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    // Very low oscillator thud
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(55, t);
+    osc.frequency.exponentialRampToValueAtTime(18, t + 0.4);
+    const og = this._gain(0);
+    osc.connect(og);
+    og.gain.setValueAtTime(0, t);
+    og.gain.linearRampToValueAtTime(0.7, t + 0.008);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    osc.start(t); osc.stop(t + 0.5);
+
+    // Mid noise crack on top
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this._noiseBuffer();
+    const lpf = this.ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 600;
+    const ng = this._gain(0);
+    noise.connect(lpf); lpf.connect(ng);
+    ng.gain.setValueAtTime(0, t);
+    ng.gain.linearRampToValueAtTime(0.5, t + 0.004);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    noise.start(t); noise.stop(t + 0.2);
+  }
+
   /** Impact: mid-frequency thud. */
   playImpact() {
     if (!this._initialized) return;
@@ -300,6 +444,65 @@ export class AudioSystem {
     noise.stop(t + 0.12);
   }
 
+  /** Drone takes a hit: short dull thud. */
+  playDroneHit() {
+    if (!this._initialized) return;
+    const t = this._now();
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + 0.12);
+    const g = this._gain(0);
+    osc.connect(g);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.35, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+    osc.start(t); osc.stop(t + 0.15);
+  }
+
+  /** Unit death sound — varies by type. */
+  playUnitDeath(unitType) {
+    if (!this._initialized) return;
+    const t = this._now();
+    if (unitType === 'soldier' || unitType === 'rocket' || unitType === 'rocketInfantry' || unitType === 'commander') {
+      // Infantry: short noise thud
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this._noiseBuffer();
+      const hpf = this.ctx.createBiquadFilter();
+      hpf.type = 'highpass'; hpf.frequency.value = 300;
+      const g = this._gain(0);
+      noise.connect(hpf); hpf.connect(g);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.12, t + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+      noise.start(t); noise.stop(t + 0.07);
+    } else if (unitType === 'enemyDrone') {
+      // Drone: electric crackle
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this._noiseBuffer();
+      const bpf = this.ctx.createBiquadFilter();
+      bpf.type = 'bandpass'; bpf.frequency.value = 2500; bpf.Q.value = 0.8;
+      const g = this._gain(0);
+      noise.connect(bpf); bpf.connect(g);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.18, t + 0.002);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      noise.start(t); noise.stop(t + 0.1);
+    } else {
+      // Vehicle (tank, flakGun, SAM, titan): metallic clang + low thud
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(180, t);
+      osc.frequency.exponentialRampToValueAtTime(40, t + 0.18);
+      const og = this._gain(0);
+      osc.connect(og);
+      og.gain.setValueAtTime(0, t);
+      og.gain.linearRampToValueAtTime(0.28, t + 0.004);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+      osc.start(t); osc.stop(t + 0.22);
+    }
+  }
+
   /** Wind: low-amplitude brown noise loop, barely perceptible. */
   startWind() {
     if (!this._initialized || this._windNode) return;
@@ -347,8 +550,10 @@ export class AudioSystem {
 
   destroy() {
     this.stopWind();
-    bus.off('weapon:impact', this._onImpact);
-    bus.off('unit:fire',     this._onGunshot);
-    bus.off('ui:click',      this._onUIClick);
+    bus.off('weapon:impact',    this._onImpact);
+    bus.off('weapon:dronefire', this._onDroneFire);
+    bus.off('unit:fire',        this._onGunshot);
+    bus.off('unit:died',        this._onUnitDied);
+    bus.off('ui:click',         this._onUIClick);
   }
 }

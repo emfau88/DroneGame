@@ -18,6 +18,8 @@ import { ObjectiveSystem }   from '../systems/ObjectiveSystem.js';
 import { HUD }             from '../ui/HUD.js';
 import { MenuManager }     from '../ui/MenuManager.js';
 import { StartScreenFX }   from '../ui/StartScreenFX.js';
+import { WorkshopScreen }  from '../ui/WorkshopScreen.js';
+import { LoadoutScreen }   from '../ui/LoadoutScreen.js';
 import { t }               from './i18n.js';
 
 const DT_CAP = 0.033;
@@ -42,6 +44,8 @@ export class Game {
     this.roguelite = null;
     this.hud      = null;
     this.menus    = null;
+    this.workshop = null;
+    this.loadout  = null;
 
     this._mapGen = null;
     this._drone  = null;
@@ -61,10 +65,13 @@ export class Game {
     // Kill counter
     this._killCount = 0;
 
-    this._lastTime = 0;
-    this._rafId    = null;
-    this._running  = false;
-    this._mapEnded = false;
+    this._lastTime     = 0;
+    this._rafId        = null;
+    this._running      = false;
+    this._mapEnded     = false;
+    this._runJustEnded = false;
+    this._workshopOnDone = null;
+    this._loadoutOnDone  = null;
 
     // Bound listeners
     this._onNewRun    = null;
@@ -110,6 +117,9 @@ export class Game {
     this.startFX = new StartScreenFX();
     this.startFX.init();
 
+    this.workshop = new WorkshopScreen();
+    this.loadout  = new LoadoutScreen();
+
     // Apply i18n to all data-i18n elements on language change
     const applyI18n = () => {
       document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -124,27 +134,54 @@ export class Game {
     this.roguelite = new RogueliteManager();
     this.roguelite.init(bus);
 
+    this.workshop.init(this.roguelite);
+    this.loadout.init(this.roguelite);
+
     this._mapGen = new MapGenerator();
 
-    // Bus listeners
-    this._onNewRun = () => this._startNewRun();
+    // Bus listeners — "New Run" from start menu goes direct; after a run shows workshop first
+    this._onNewRun = () => {
+      if (this._runJustEnded) {
+        this._runJustEnded = false;
+        this._openWorkshop(() => this._openLoadout(() => this._startNewRun()));
+      } else {
+        this._startNewRun();
+      }
+    };
     this._onMainMenu = () => {
       this.state.transition('MENU');
       this.hud.hide();
+      this.workshop.hide();
+      this.loadout.hide();
+      this.menus.hideAll();
+      this.menus.showStart();
     };
     this._onDroneDead = () => this._onDroneKilled();
     this._onUnitDied = ({ unit }) => {
       if (unit.team === 'red') {
         this._killCount++;
         this.roguelite.recordKill();
-        // Killstreak / scavenger upgrades
+        this.roguelite.awardCoins(unit.type);
+        this.hud.setCoins(this.roguelite.coins);
         if (this._drone && this._drone.alive) {
           this._drone.onEnemyKill(unit.type);
         }
       }
     };
-    this._onUpgradeSelected = ({ upgradeId }) => this._applyUpgradeAndContinue(upgradeId);
-    this._onUpgradeReroll   = () => this._handleUpgradeReroll();
+    this._onUpgradeSelected  = ({ upgradeId }) => this._applyUpgradeAndContinue(upgradeId);
+    this._onUpgradeReroll    = () => this._handleUpgradeReroll();
+    this._onWorkshopContinue = () => {
+      this.workshop.hide();
+      const onDone = this._workshopOnDone;
+      this._workshopOnDone = null;
+      if (onDone) onDone();
+    };
+    this._onLoadoutConfirmed = () => {
+      this.loadout.hide();
+      const onDone = this._loadoutOnDone;
+      this._loadoutOnDone = null;
+      if (onDone) onDone();
+    };
 
     this._onWeaponImpactShake = ({ type }) => {
       const t = (type || '').toLowerCase();
@@ -160,10 +197,17 @@ export class Game {
     };
     this._onBattleDroneHit = () => {
       this.renderer.shake(6, 0.25);
+      this.audio.playDroneHit();
+    };
+
+    this._onOpenWorkshop = () => {
+      this._runJustEnded = false; // already in workshop flow
+      this._openWorkshop(() => this._openLoadout(() => this._startNewRun()));
     };
 
     bus.on('menu:newRun',          this._onNewRun);
     bus.on('menu:mainMenu',        this._onMainMenu);
+    bus.on('menu:workshop',        this._onOpenWorkshop);
     bus.on('drone:dead',           this._onDroneDead);
     bus.on('unit:died',            this._onUnitDied);
     bus.on('upgrade:cardSelected', this._onUpgradeSelected);
@@ -171,6 +215,9 @@ export class Game {
     bus.on('flak:nearMiss',        this._onFlakNearMiss);
     bus.on('weapon:impact',        this._onWeaponImpactShake);
     bus.on('battle:droneHit',      this._onBattleDroneHit);
+    bus.on('drone:hit', () => { this.renderer.shake(0.18, 0.20); });
+    bus.on('workshop:continue',    this._onWorkshopContinue);
+    bus.on('loadout:confirmed',    this._onLoadoutConfirmed);
 
     document.addEventListener('pointerdown', () => this.audio.resume(), { once: true });
 
@@ -188,6 +235,20 @@ export class Game {
 
   // ── Run management ────────────────────────────────────────────────────────
 
+  /** Show workshop after run ends. onDone called when player clicks Continue → Loadout → run. */
+  _openWorkshop(onDone) {
+    this._workshopOnDone = onDone;
+    this.menus.hideAll();
+    this.hud.hide();
+    this.hud.setCoins(this.roguelite.coins);
+    this.workshop.show();
+  }
+
+  _openLoadout(onDone) {
+    this._loadoutOnDone = onDone;
+    this.loadout.show();
+  }
+
   _startNewRun() {
     // Cancel any pending map-end or wave-spawn callbacks from a previous run
     this._mapEndCallback    = null;
@@ -199,13 +260,8 @@ export class Game {
     this.roguelite.startRun();
     this._killCount = 0;
 
-    // Bring state to PLAYING before upgrade select (required for RUN_OVER/RUN_WIN/ENDED)
-    if (!this.state.is('PLAYING') && !this.state.is('MENU')) {
-      this.state.transition('PLAYING');
-    }
-
-    // Show first upgrade selection before map 1
-    this._showUpgradeSelectForMap(0, () => this._loadMap(0));
+    // Map 1 starts immediately — no upgrade select before first map
+    this._loadMap(0);
   }
 
   _showUpgradeSelectForMap(mapIndex, onDone) {
@@ -315,9 +371,14 @@ export class Game {
         this._getObjectiveText(template.objective),
       );
       this.hud.show();
+      this.hud.resetForMap();
 
-      // Objective briefing — show what the player must do at map start
-      this.hud.showCenterText(this._getObjectiveText(template.objective), 2.5);
+      // Briefing text from template — shown line by line with stagger, then objective
+      if (template.briefing?.length) {
+        this.hud.showBriefing(template.briefing);
+      } else {
+        this.hud.showCenterText(this._getObjectiveText(template.objective), 2.5);
+      }
 
       // Tutorial: flak tooltip on map 1 (one-time, localStorage-gated)
       if (template.tutorialMap) this.hud.startFlakTooltip();
@@ -326,12 +387,10 @@ export class Game {
       this.renderer.setCameraTarget(this._drone.position);
       this.renderer.startCinematicIntro?.();
 
-      // Ensure PLAYING state — _loadMap is only called from upgrade callback or new run
-      if (this.state.is('UPGRADE_SELECT')) this.state.transition('PLAYING');
-      else if (this.state.is('RUN_OVER'))  this.state.transition('PLAYING');
-      else if (this.state.is('RUN_WIN'))   this.state.transition('PLAYING');
-      else if (this.state.is('ENDED'))     this.state.transition('PLAYING');
-      // PLAYING is the expected state already if entering from upgrade callback
+      // Ensure PLAYING state
+      if (!this.state.is('PLAYING')) {
+        this.state.transition('PLAYING');
+      }
 
       this.audio.startWind();
       this.roguelite.setCurrentMap(mapIndex);
@@ -459,6 +518,7 @@ export class Game {
 
   _onRunOver() {
     this.hud.hide();
+    this._runJustEnded = true;
     const result = this.roguelite.endRun(false);
     const stats  = result.stats;
     const meta   = result.newMetaUpgrade;
@@ -469,6 +529,7 @@ export class Game {
 
   _onRunWin() {
     this.hud.hide();
+    this._runJustEnded = true;
     const result = this.roguelite.endRun(true);
     const stats  = result.stats;
     const meta   = result.newMetaUpgrade;
@@ -502,8 +563,9 @@ export class Game {
       this.weapons.setUnits(this.battle.units);
 
       // Update HUD weapon cooldowns
-      const pw = this._drone.primaryWeapon;
-      const sw = this._drone.secondaryWeapon;
+      const pw  = this._drone.primaryWeapon;
+      const sw  = this._drone.secondaryWeapon;
+      const sw2 = this._drone.secondaryWeapon2;
       this.hud.updatePrimary(
         pw ? pw.type : 'none',
         this._drone.primaryCooldown,
@@ -513,6 +575,11 @@ export class Game {
         sw ? sw.type : null,
         this._drone.secondaryCooldown,
         sw ? sw.cooldownDuration * this._drone.cooldownMultiplier : 1,
+      );
+      this.hud.updateSecondary2(
+        sw2 ? sw2.type : null,
+        this._drone.secondaryCooldown2,
+        sw2 ? sw2.cooldownDuration * this._drone.cooldownMultiplier : 1,
       );
     }
 
@@ -579,6 +646,7 @@ export class Game {
 
     bus.off('menu:newRun',          this._onNewRun);
     bus.off('menu:mainMenu',        this._onMainMenu);
+    bus.off('menu:workshop',        this._onOpenWorkshop);
     bus.off('drone:dead',           this._onDroneDead);
     bus.off('unit:died',            this._onUnitDied);
     bus.off('upgrade:cardSelected', this._onUpgradeSelected);
@@ -586,6 +654,8 @@ export class Game {
     bus.off('flak:nearMiss',        this._onFlakNearMiss);
     bus.off('weapon:impact',        this._onWeaponImpactShake);
     bus.off('battle:droneHit',      this._onBattleDroneHit);
+    bus.off('workshop:continue',    this._onWorkshopContinue);
+    bus.off('loadout:confirmed',    this._onLoadoutConfirmed);
     this._cleanupMapListeners();
     this._objectiveSystem.destroy();
 

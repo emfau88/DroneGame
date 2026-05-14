@@ -1,3 +1,9 @@
+/** Fill the first empty secondary slot (1 then 2) with the given weapon type. */
+function _fillFreeSlot(drone, type) {
+  if (!drone.secondaryWeapon)  { drone.setSecondaryWeapon(type, 1); return; }
+  if (!drone.secondaryWeapon2) { drone.setSecondaryWeapon(type, 2); }
+}
+
 /**
  * Run upgrade pool — 24 upgrades chosen between maps.
  * From DRONE_STRIKE_REBUILD.md §Roguelite System.
@@ -18,28 +24,28 @@ export const UPGRADES = [
     apply: (drone) => {
       drone._upgrades = drone._upgrades || {};
       drone._upgrades.devastator = true;
-      if (!drone.secondaryWeapon) drone.setSecondaryWeapon('bomb');
+      _fillFreeSlot(drone, 'bomb');
     }
   },
   { id: 'chain_emp',        name: 'Chain EMP',        category: 'OFFENSIVE', description: 'Unlock EMP secondary. Pulses twice (second pulse 1s after first)',
     apply: (drone) => {
       drone._upgrades = drone._upgrades || {};
       drone._upgrades.chainEMP = true;
-      if (!drone.secondaryWeapon) drone.setSecondaryWeapon('emp');
+      _fillFreeSlot(drone, 'emp');
     }
   },
   { id: 'homing_missiles',  name: 'Homing Missiles',  category: 'OFFENSIVE', description: 'Unlock MISSILE secondary. Splash +2, +20% damage vs tanks',
     apply: (drone) => {
       drone._upgrades = drone._upgrades || {};
       drone._upgrades.homingMissiles = true;
-      if (!drone.secondaryWeapon) drone.setSecondaryWeapon('missile');
+      _fillFreeSlot(drone, 'missile');
     }
   },
   { id: 'cluster_plus',     name: 'Cluster Plus',     category: 'OFFENSIVE', description: 'Unlock CLUSTER secondary. Adds 2 extra submunitions (8 total)',
     apply: (drone) => {
       drone._upgrades = drone._upgrades || {};
       drone._upgrades.clusterPlus = true;
-      if (!drone.secondaryWeapon) drone.setSecondaryWeapon('cluster');
+      _fillFreeSlot(drone, 'cluster');
     }
   },
   { id: 'armor_piercer',    name: 'Armor Piercer',    category: 'OFFENSIVE', description: 'Weapons deal +30% damage to tanks',
@@ -84,7 +90,7 @@ export const UPGRADES = [
 
   // UTILITY
   { id: 'dual_weapons',     name: 'Dual Weapons',     category: 'UTILITY',   description: 'Unlock secondary weapon slot',
-    apply: (drone) => { if (!drone.secondaryWeapon) drone.setSecondaryWeapon('bomb'); } },
+    apply: (drone) => { _fillFreeSlot(drone, 'bomb'); } },
   { id: 'weapon_cache',     name: 'Weapon Cache',     category: 'UTILITY',   description: 'Start each map with all cooldowns reset',
     apply: (drone) => { drone._upgrades = drone._upgrades || {}; drone._upgrades.weaponCache = true; } },
   { id: 'intel',            name: 'Intel',            category: 'UTILITY',   description: 'Flak gun lock-on time reduced by 30%',

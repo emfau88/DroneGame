@@ -52,7 +52,8 @@ export class MenuManager {
     this._runOverScreenEl = document.getElementById('screen-run-over');
     this._runWinScreenEl  = document.getElementById('screen-run-win');
 
-    this._playBtnEl = document.getElementById('btn-play');
+    this._playBtnEl      = document.getElementById('btn-play');
+    this._startWorkshopBtnEl = document.getElementById('btn-start-workshop');
 
     this._upgradeMapLabelEl = document.getElementById('upgrade-map-label');
     this._upgradeCardsEl    = document.getElementById('upgrade-cards');
@@ -63,16 +64,18 @@ export class MenuManager {
     this._metaBlockEl = document.getElementById('meta-unlock-block');
     this._metaNameEl  = document.getElementById('meta-unlock-name');
     this._metaDescEl  = document.getElementById('meta-unlock-desc');
-    this._runOverNewBtn  = document.getElementById('btn-run-over-new');
-    this._runOverMenuBtn = document.getElementById('btn-run-over-menu');
+    this._runOverWorkshopBtn = document.getElementById('btn-run-over-workshop');
+    this._runOverNewBtn      = document.getElementById('btn-run-over-new');
+    this._runOverMenuBtn     = document.getElementById('btn-run-over-menu');
 
     this._winStatKillsEl = document.getElementById('win-stat-kills');
     this._winStatTimeEl  = document.getElementById('win-stat-time');
     this._winMetaBlockEl = document.getElementById('win-meta-unlock-block');
     this._winMetaNameEl  = document.getElementById('win-meta-unlock-name');
     this._winMetaDescEl  = document.getElementById('win-meta-unlock-desc');
-    this._runWinNewBtn   = document.getElementById('btn-run-win-new');
-    this._runWinMenuBtn  = document.getElementById('btn-run-win-menu');
+    this._runWinWorkshopBtn = document.getElementById('btn-run-win-workshop');
+    this._runWinNewBtn      = document.getElementById('btn-run-win-new');
+    this._runWinMenuBtn     = document.getElementById('btn-run-win-menu');
 
     this._wireButtons();
   }
@@ -84,35 +87,47 @@ export class MenuManager {
         bus.emit('menu:newRun');
       });
     }
+    if (this._startWorkshopBtnEl) {
+      this._startWorkshopBtnEl.addEventListener('pointerdown', () => {
+        bus.emit('ui:click');
+        bus.emit('menu:workshop');
+      });
+    }
 
+    if (this._runOverWorkshopBtn) {
+      this._runOverWorkshopBtn.addEventListener('pointerdown', () => {
+        bus.emit('ui:click');
+        bus.emit('menu:workshop');
+      });
+    }
     if (this._runOverNewBtn) {
       this._runOverNewBtn.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
         bus.emit('menu:newRun');
-        this.hideAll();
       });
     }
     if (this._runOverMenuBtn) {
       this._runOverMenuBtn.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
         bus.emit('menu:mainMenu');
-        this.hideAll();
-        this.showStart();
+      });
+    }
+    if (this._runWinWorkshopBtn) {
+      this._runWinWorkshopBtn.addEventListener('pointerdown', () => {
+        bus.emit('ui:click');
+        bus.emit('menu:workshop');
       });
     }
     if (this._runWinNewBtn) {
       this._runWinNewBtn.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
         bus.emit('menu:newRun');
-        this.hideAll();
       });
     }
     if (this._runWinMenuBtn) {
       this._runWinMenuBtn.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
         bus.emit('menu:mainMenu');
-        this.hideAll();
-        this.showStart();
       });
     }
   }
@@ -283,6 +298,8 @@ export class MenuManager {
       this._upgradeScreenEl,
       this._runOverScreenEl,
       this._runWinScreenEl,
+      document.getElementById('screen-workshop'),
+      document.getElementById('screen-loadout'),
     ]) {
       if (el) el.style.display = 'none';
     }

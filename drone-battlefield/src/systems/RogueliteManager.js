@@ -3,8 +3,57 @@ import { UPGRADES, UPGRADE_MAP } from '../data/upgrades.js';
 import { META_UPGRADES, META_UPGRADE_MAP } from '../data/metaUpgrades.js';
 import { MAP_TEMPLATES } from '../data/mapTemplates.js';
 
-const STORAGE_KEY = 'drone_strike_meta';
+const STORAGE_KEY      = 'drone_strike_meta';
+const COIN_KEY         = 'drone_strike_coins';
+const WORKSHOP_KEY     = 'drone_strike_workshop';
+const DRONE_KEY        = 'drone_strike_drone';
 const CHOICES_PER_UPGRADE = 3;
+
+export const DRONE_MODELS = [
+  {
+    id:          'wasp',
+    nameKey:     'drone.wasp.name',
+    descKey:     'drone.wasp.desc',
+    cost:        0,      // always free
+    maxHp:       3,
+    speedMult:   1.0,
+    dualCannon:  false,
+  },
+  {
+    id:          'hornet',
+    nameKey:     'drone.hornet.name',
+    descKey:     'drone.hornet.desc',
+    cost:        120,
+    maxHp:       6,
+    speedMult:   0.90,   // -10% speed
+    dualCannon:  false,
+  },
+  {
+    id:          'reaper',
+    nameKey:     'drone.reaper.name',
+    descKey:     'drone.reaper.desc',
+    cost:        200,
+    maxHp:       2,
+    speedMult:   1.15,   // +15% speed
+    dualCannon:  true,   // fires 2 cannon shots simultaneously
+  },
+];
+export const DRONE_MODEL_MAP = Object.fromEntries(DRONE_MODELS.map(d => [d.id, d]));
+
+const COIN_PER_KILL = {
+  soldier: 1, rocket: 2, tank: 3, commander: 5,
+  flakGun: 3, enemyDrone: 2,
+};
+
+export const WORKSHOP_ITEMS = [
+  { id: 'unlock_missile',  category: 'WEAPON',  cost: 20, nameKey: 'ws.missile.name',  descKey: 'ws.missile.desc'  },
+  { id: 'unlock_bomb',     category: 'WEAPON',  cost: 20, nameKey: 'ws.bomb.name',     descKey: 'ws.bomb.desc'     },
+  { id: 'unlock_emp',      category: 'WEAPON',  cost: 25, nameKey: 'ws.emp.name',      descKey: 'ws.emp.desc'      },
+  { id: 'unlock_cluster',  category: 'WEAPON',  cost: 35, nameKey: 'ws.cluster.name',  descKey: 'ws.cluster.desc'  },
+  { id: 'bonus_hp',        category: 'HULL',    cost: 30, nameKey: 'ws.bonusHp.name',  descKey: 'ws.bonusHp.desc'  },
+  { id: 'bonus_cooldown',  category: 'SYSTEMS', cost: 25, nameKey: 'ws.cooldown.name', descKey: 'ws.cooldown.desc' },
+  { id: 'coin_boost',      category: 'SYSTEMS', cost: 15, nameKey: 'ws.coinBoost.name',descKey: 'ws.coinBoost.desc'},
+];
 
 /**
  * RogueliteManager — manages run state, upgrade selection, and meta-progression.
@@ -20,12 +69,90 @@ export class RogueliteManager {
     /** Permanently owned meta upgrade IDs (persists across runs). */
     this.metaUpgrades = [];
 
+    /** Coins accumulated across all runs. */
+    this.coins = 0;
+
+    /** Workshop: permanently unlocked weapon/bonus IDs. */
+    this.workshopUnlocks = [];
+
+    /** Loadout: chosen secondary weapon IDs for next run (max 2). */
+    this.loadout = [];
+
+    /** Selected drone model id for next run. */
+    this.selectedDrone = 'wasp';
+
     this._onUpgrade = null;
   }
 
   init(bus_) {
     this._bus = bus_;
     this.loadMetaProgress();
+    this.loadCoins();
+    this.loadWorkshop();
+    this.loadDroneSelection();
+  }
+
+  /** Award coins for a kill. Returns coins earned (includes coin_boost multiplier). */
+  awardCoins(unitType) {
+    const base   = COIN_PER_KILL[unitType] ?? 1;
+    const boost  = this.workshopUnlocks.includes('coin_boost') ? 1.5 : 1;
+    const earned = Math.round(base * boost);
+    this.coins += earned;
+    this.saveCoins();
+    bus.emit('coins:changed', { coins: this.coins, earned });
+    return earned;
+  }
+
+  spendCoins(amount) {
+    if (this.coins < amount) return false;
+    this.coins -= amount;
+    this.saveCoins();
+    bus.emit('coins:changed', { coins: this.coins, earned: 0 });
+    return true;
+  }
+
+  /** Unlock a workshop item. Returns false if already owned or not enough coins. */
+  workshopBuy(itemId) {
+    const item = WORKSHOP_ITEMS.find(i => i.id === itemId);
+    if (!item) return false;
+    if (this.workshopUnlocks.includes(itemId)) return false;
+    if (!this.spendCoins(item.cost)) return false;
+    this.workshopUnlocks.push(itemId);
+    this.saveWorkshop();
+    bus.emit('workshop:unlocked', { itemId });
+    return true;
+  }
+
+  isWorkshopUnlocked(itemId) {
+    return this.workshopUnlocks.includes(itemId);
+  }
+
+  setLoadout(secondaries) {
+    this.loadout = secondaries.slice(0, 2);
+  }
+
+  setDrone(droneId) {
+    if (DRONE_MODEL_MAP[droneId]) {
+      this.selectedDrone = droneId;
+      this.saveDroneSelection();
+    }
+  }
+
+  isDroneUnlocked(droneId) {
+    if (droneId === 'wasp') return true;
+    return this.workshopUnlocks.includes('drone_' + droneId);
+  }
+
+  droneBuy(droneId) {
+    const model = DRONE_MODEL_MAP[droneId];
+    if (!model || droneId === 'wasp') return false;
+    const wsId = 'drone_' + droneId;
+    if (this.workshopUnlocks.includes(wsId)) return false;
+    if (!this.spendCoins(model.cost)) return false;
+    this.workshopUnlocks.push(wsId);
+    this.saveWorkshop();
+    bus.emit('workshop:unlocked', { itemId: wsId });
+    return true;
   }
 
   // ── Run lifecycle ─────────────────────────────────────────────────────────
@@ -135,17 +262,39 @@ export class RogueliteManager {
     drone.cooldownMultiplier = 1.0;
     drone._upgrades = {};
 
-    // Apply meta upgrades first (permanent)
+    // Apply selected drone model base stats
+    const model = DRONE_MODEL_MAP[this.selectedDrone] ?? DRONE_MODEL_MAP['wasp'];
+    drone.maxHp         = model.maxHp;
+    drone.hp            = model.maxHp;
+    drone.speedMultiplier *= model.speedMult;
+    drone.dualCannon    = model.dualCannon;
+    drone.droneModelId  = model.id;
+
+    // Apply workshop permanent bonuses
+    if (this.workshopUnlocks.includes('bonus_hp')) {
+      drone.maxHp = Math.min(drone.maxHp + 1, 6);
+      drone.hp    = Math.min(drone.hp + 1, drone.maxHp);
+    }
+    if (this.workshopUnlocks.includes('bonus_cooldown')) {
+      drone.cooldownMultiplier *= 0.90; // -10%
+    }
+
+    // Apply meta upgrades (permanent cross-run)
     for (const id of this.metaUpgrades) {
       const meta = META_UPGRADE_MAP[id];
       if (meta?.apply) meta.apply(drone);
     }
 
     // Apply run upgrades
+    drone.clearSecondaryWeapons();
     for (const id of (this.currentRun?.activeUpgrades ?? [])) {
       const upgrade = UPGRADE_MAP[id];
       if (upgrade?.apply) upgrade.apply(drone);
     }
+
+    // Apply loadout weapons
+    if (this.loadout[0]) drone.setSecondaryWeapon(this.loadout[0], 1);
+    if (this.loadout[1]) drone.setSecondaryWeapon(this.loadout[1], 2);
 
     // Quick Repair: restore 1 HP if below max
     if (drone._upgrades?.quickRepair && drone.hp < drone.maxHp) {
@@ -154,8 +303,9 @@ export class RogueliteManager {
 
     // Weapon Cache: reset cooldowns
     if (drone._upgrades?.weaponCache) {
-      drone.primaryCooldown   = 0;
-      drone.secondaryCooldown = 0;
+      drone.primaryCooldown    = 0;
+      drone.secondaryCooldown  = 0;
+      drone.secondaryCooldown2 = 0;
     }
   }
 
@@ -190,16 +340,34 @@ export class RogueliteManager {
   }
 
   saveMetaProgress() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.metaUpgrades));
-    } catch (_) { /* storage unavailable */ }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.metaUpgrades)); } catch (_) {}
+  }
+  loadMetaProgress() {
+    try { const r = localStorage.getItem(STORAGE_KEY); if (r) this.metaUpgrades = JSON.parse(r); }
+    catch (_) { this.metaUpgrades = []; }
   }
 
-  loadMetaProgress() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) this.metaUpgrades = JSON.parse(raw);
-    } catch (_) { this.metaUpgrades = []; }
+  saveCoins() {
+    try { localStorage.setItem(COIN_KEY, String(this.coins)); } catch (_) {}
+  }
+  loadCoins() {
+    try { this.coins = parseInt(localStorage.getItem(COIN_KEY) ?? '0', 10) || 0; } catch (_) {}
+  }
+
+  saveWorkshop() {
+    try { localStorage.setItem(WORKSHOP_KEY, JSON.stringify(this.workshopUnlocks)); } catch (_) {}
+  }
+  loadWorkshop() {
+    try { const r = localStorage.getItem(WORKSHOP_KEY); if (r) this.workshopUnlocks = JSON.parse(r); }
+    catch (_) { this.workshopUnlocks = []; }
+  }
+
+  saveDroneSelection() {
+    try { localStorage.setItem(DRONE_KEY, this.selectedDrone); } catch (_) {}
+  }
+  loadDroneSelection() {
+    try { this.selectedDrone = localStorage.getItem(DRONE_KEY) || 'wasp'; } catch (_) {}
+    if (!DRONE_MODEL_MAP[this.selectedDrone]) this.selectedDrone = 'wasp';
   }
 
   _shuffle(arr) {

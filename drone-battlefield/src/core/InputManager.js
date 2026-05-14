@@ -2,7 +2,7 @@ const DEAD_ZONE = 0.08;
 
 /**
  * InputManager — unified joystick (touch) + keyboard input.
- * Output: { x, y, firePrimary, fireSecondary }
+ * Output: { x, y, firePrimary, fireSecondary, fireSecondary2 }
  * firePrimary/fireSecondary are true every frame the button is HELD (not edge-triggered).
  * Weapons fire when cooldown is ready AND button is held — Drone.js manages cooldowns.
  */
@@ -10,8 +10,9 @@ export class InputManager {
   constructor() {
     this._joystickEl   = null;
     this._knobEl       = null;
-    this._firePrimaryBtn  = null;
-    this._fireSecondaryBtn = null;
+    this._firePrimaryBtn   = null;
+    this._fireSecondaryBtn  = null;
+    this._fireSecondary2Btn = null;
 
     this._joystickActive    = false;
     this._joystickOrigin    = { x: 0, y: 0 };
@@ -24,12 +25,14 @@ export class InputManager {
     this._keys = {};
 
     // Hold state — true while button/key held
-    this._primaryHeld   = false;
-    this._secondaryHeld = false;
+    this._primaryHeld    = false;
+    this._secondaryHeld  = false;
+    this._secondary2Held = false;
 
     // Touch pointer IDs for multi-touch fire
-    this._primaryPointerId   = null;
-    this._secondaryPointerId = null;
+    this._primaryPointerId    = null;
+    this._secondaryPointerId  = null;
+    this._secondary2PointerId = null;
 
     this._onPointerDown = this._handlePointerDown.bind(this);
     this._onPointerMove = this._handlePointerMove.bind(this);
@@ -39,10 +42,11 @@ export class InputManager {
   }
 
   init() {
-    this._joystickEl        = document.getElementById('joystick');
-    this._knobEl            = document.getElementById('joystick-knob');
-    this._firePrimaryBtn    = document.getElementById('fire-primary-btn');
-    this._fireSecondaryBtn  = document.getElementById('fire-secondary-btn');
+    this._joystickEl         = document.getElementById('joystick');
+    this._knobEl             = document.getElementById('joystick-knob');
+    this._firePrimaryBtn     = document.getElementById('fire-primary-btn');
+    this._fireSecondaryBtn   = document.getElementById('fire-secondary-btn');
+    this._fireSecondary2Btn  = document.getElementById('fire-secondary2-btn');
 
     if (!this._joystickEl || !this._knobEl) {
       console.warn('[InputManager] HUD elements not found — check index.html IDs');
@@ -96,6 +100,26 @@ export class InputManager {
         }
       });
     }
+
+    if (this._fireSecondary2Btn) {
+      this._fireSecondary2Btn.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        this._secondary2Held = true;
+        this._secondary2PointerId = e.pointerId;
+      });
+      this._fireSecondary2Btn.addEventListener('pointerup', (e) => {
+        if (e.pointerId === this._secondary2PointerId) {
+          this._secondary2Held = false;
+          this._secondary2PointerId = null;
+        }
+      });
+      this._fireSecondary2Btn.addEventListener('pointerleave', (e) => {
+        if (e.pointerId === this._secondary2PointerId) {
+          this._secondary2Held = false;
+          this._secondary2PointerId = null;
+        }
+      });
+    }
   }
 
   _handlePointerDown(e) {
@@ -139,6 +163,7 @@ export class InputManager {
     this._keys[e.code] = true;
     if (e.code === 'Space') e.preventDefault();
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') e.preventDefault();
+    if (e.code === 'KeyR') e.preventDefault();
   }
 
   _handleKeyUp(e) {
@@ -166,11 +191,12 @@ export class InputManager {
     if (Math.abs(x) < DEAD_ZONE) x = 0;
     if (Math.abs(y) < DEAD_ZONE) y = 0;
 
-    // Space = primary fire, Shift = secondary fire
-    const firePrimary   = this._primaryHeld   || this._keys['Space'] === true;
-    const fireSecondary = this._secondaryHeld  || this._keys['ShiftLeft'] === true || this._keys['ShiftRight'] === true;
+    // Space = primary, Shift = secondary slot 1, R = secondary slot 2
+    const firePrimary    = this._primaryHeld    || this._keys['Space'] === true;
+    const fireSecondary  = this._secondaryHeld  || this._keys['ShiftLeft'] === true || this._keys['ShiftRight'] === true;
+    const fireSecondary2 = this._secondary2Held || this._keys['KeyR'] === true;
 
-    return { x, y, firePrimary, fireSecondary };
+    return { x, y, firePrimary, fireSecondary, fireSecondary2 };
   }
 
   destroy() {

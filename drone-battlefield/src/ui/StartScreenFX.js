@@ -50,29 +50,33 @@ export class StartScreenFX {
 
     // Manoeuvre state
     this._manoeuvreTimer  = this._randManoeuvreDelay();
-    this._manoeuvre       = null; // 'wiggle' | 'spin' | 'reverse' | 'pause'
+    this._manoeuvre       = null;
     this._manoeuvrePhase  = 0;
 
-    // Quip state
-    this._quipTimer   = 4 + Math.random() * 5;
+    // Quip state — first quip after 12–18s, stays visible 9s, repeats every 30–50s
+    this._quipTimer   = 12 + Math.random() * 6;
     this._quipEl      = null;
     this._quipVisible = false;
     this._quipFadeTimer = 0;
+
+    this._particles = []; // DOM particle elements
   }
 
   init() {
     this._initCanvas();
     this._buildDrone();
+    this._buildParticles();
     this._buildQuipBubble();
     this._buildMapPath();
     this._buildLangToggle();
-    this._bindToggle();
     this._loop();
 
     document.addEventListener('langChanged', () => {
       this._refreshStaticText();
       this._rebuildMapPath();
     });
+    // Set initial title based on saved language
+    this._refreshStaticText();
   }
 
   _initCanvas() {
@@ -81,10 +85,10 @@ export class StartScreenFX {
 
     this._scene  = new THREE.Scene();
     const w = canvas.parentElement?.clientWidth || 600;
-    const h = 130;
+    const h = 220;
 
     this._camera = new THREE.PerspectiveCamera(42, w / h, 0.1, 100);
-    this._camera.position.set(0, 1.6, 8);
+    this._camera.position.set(0, 1.2, 7);
     this._camera.lookAt(0, 0, 0);
 
     this._renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -100,9 +104,9 @@ export class StartScreenFX {
 
     window.addEventListener('resize', () => {
       const nw = canvas.parentElement?.clientWidth || 600;
-      this._camera.aspect = nw / h;
+      this._camera.aspect = nw / 220;
       this._camera.updateProjectionMatrix();
-      this._renderer.setSize(nw, h, false);
+      this._renderer.setSize(nw, 220, false);
     });
   }
 
@@ -171,7 +175,7 @@ export class StartScreenFX {
     this._quipEl.textContent = quips[Math.floor(Math.random() * quips.length)];
     this._quipEl.style.opacity = '1';
     this._quipVisible  = true;
-    this._quipFadeTimer = 3.2;
+    this._quipFadeTimer = 9.0;
   }
 
   _loop() {
@@ -263,7 +267,7 @@ export class StartScreenFX {
       this._vel.set(0, 0);
       this._tiltZ += (0 - this._tiltZ) * dt * 4;
       if (this._manoeuvrePhase > 0.3 && !this._quipVisible) this._showQuip();
-      if (this._manoeuvrePhase > 2.8) this._endManoeuvre();
+      if (this._manoeuvrePhase > 7.5) this._endManoeuvre();
     }
   }
 
@@ -272,7 +276,7 @@ export class StartScreenFX {
     this._manoeuvreTimer = this._randManoeuvreDelay();
   }
 
-  _randManoeuvreDelay() { return 5 + Math.random() * 8; }
+  _randManoeuvreDelay() { return 22 + Math.random() * 18; }
 
   _updateQuip(dt) {
     if (!this._quipEl) return;
@@ -286,7 +290,7 @@ export class StartScreenFX {
     // Independent quip timer (separate from manoeuvre pauses)
     this._quipTimer -= dt;
     if (this._quipTimer <= 0 && !this._quipVisible) {
-      this._quipTimer = 8 + Math.random() * 10;
+      this._quipTimer = 30 + Math.random() * 20;
       this._showQuip();
     }
   }
@@ -329,8 +333,9 @@ export class StartScreenFX {
     if (subtitle) subtitle.textContent = t('start.subtitle');
     const btn = document.querySelector('#btn-play');
     if (btn) btn.textContent = t('start.newRun');
-    const mapBtn = document.querySelector('#btn-map-path span:last-child');
-    if (mapBtn) mapBtn.textContent = ' ' + t('start.missionOverview');
+    // Update title for language
+    const titleEl = document.getElementById('start-title');
+    if (titleEl) titleEl.textContent = getLang() === 'de' ? 'Drohnenwahn' : 'Drone Strike';
   }
 
   _buildLangToggle() {
@@ -340,10 +345,11 @@ export class StartScreenFX {
     const renderToggle = () => {
       wrap.innerHTML = '';
       const current = getLang();
-      for (const [code, flag, label] of [['en', '🇬🇧', 'EN'], ['de', '🇩🇪', 'DE']]) {
+      for (const [code, flag] of [['en', '🇬🇧'], ['de', '🇩🇪']]) {
         const btn = document.createElement('button');
         btn.className = 'lang-btn' + (current === code ? ' active' : '');
-        btn.innerHTML = `${flag} ${label}`;
+        btn.title = code === 'en' ? 'English' : 'Deutsch';
+        btn.textContent = flag;
         btn.addEventListener('pointerdown', () => { setLang(code); renderToggle(); });
         wrap.appendChild(btn);
       }
@@ -353,18 +359,35 @@ export class StartScreenFX {
     document.addEventListener('langChanged', () => renderToggle());
   }
 
-  _bindToggle() {
-    const btn   = document.getElementById('btn-map-path');
-    const inner = document.getElementById('map-path-inner');
-    if (!btn || !inner) return;
-    btn.addEventListener('pointerdown', () => {
-      const open = inner.classList.toggle('open');
-      btn.classList.toggle('open', open);
-    });
+  _buildParticles() {
+    const wrap = document.getElementById('drone-canvas-wrap');
+    if (!wrap) return;
+    // 12 small slow-drifting particles for depth
+    for (let i = 0; i < 12; i++) {
+      const el = document.createElement('div');
+      el.className = 'start-particle';
+      const size = 1.5 + Math.random() * 2.5;
+      const duration = 8 + Math.random() * 14;
+      const delay    = -(Math.random() * duration);
+      const drift    = (Math.random() - 0.5) * 40;
+      el.style.cssText = `
+        width:${size}px; height:${size}px;
+        left:${Math.random() * 100}%;
+        bottom:${Math.random() * 60}%;
+        --px-drift:${drift}px;
+        animation-duration:${duration}s;
+        animation-delay:${delay}s;
+        opacity:0;
+      `;
+      wrap.appendChild(el);
+      this._particles.push(el);
+    }
   }
 
   destroy() {
     if (this._raf) cancelAnimationFrame(this._raf);
     this._renderer?.dispose();
+    for (const p of this._particles) p.remove();
+    this._particles = [];
   }
 }

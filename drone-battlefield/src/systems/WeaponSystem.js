@@ -74,7 +74,7 @@ export class WeaponSystem {
     this._pendingCluster  = [];
     this._pendingChainEMP = [];
     for (const m of this._missiles) {
-      if (m.type === 'bullet') {
+      if (m.type === 'bullet' || m.type === 'falling_bomb') {
         if (this._scene) this._scene.remove(m.mesh);
         m.geo.dispose(); m.mat.dispose();
       } else if (m.type === 'missile') {
@@ -124,9 +124,9 @@ export class WeaponSystem {
       const dist = from.distanceTo(to);
       const speed = 28;
 
-      // Small bright blue sphere that travels to target
-      const geo  = new THREE.SphereGeometry(0.09, 5, 4);
-      const mat  = new THREE.MeshBasicMaterial({ color: 0x88CCFF });
+      // Bright yellow-white tracer round — clearly player-owned, readable at speed
+      const geo  = new THREE.SphereGeometry(0.14, 5, 4);
+      const mat  = new THREE.MeshBasicMaterial({ color: 0xFFFF99 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(from);
       this._scene.add(mesh);
@@ -172,16 +172,30 @@ export class WeaponSystem {
       const dist = Math.hypot(unit.position.x - pos.x, unit.position.z - pos.z);
       if (dist > radius) continue;
       const t = 1 - dist / radius;
-      // armorPiercer: +30% vs tanks
       const armorBonus = (upg.armorPiercer && unit.type === 'tank') ? 1.3 : 1;
       const dmg = baseDmg * t * dm * armorBonus;
       affected.push({ unit, damage: dmg });
     }
 
-    bus.emit('weapon:impact', { type: 'bomb', position: pos.clone(), affectedUnits: affected });
-
-    for (const { unit, damage } of affected) {
-      unit.takeDamage(damage);
+    // Falling bomb visual: small dark sphere drops from drone to ground over 0.28s
+    if (this._scene) {
+      const bombGeo = new THREE.SphereGeometry(0.18, 6, 4);
+      const bombMat = new THREE.MeshBasicMaterial({ color: 0x222211 });
+      const bombMesh = new THREE.Mesh(bombGeo, bombMat);
+      bombMesh.position.set(dronePos.x, dronePos.y - 0.5, dronePos.z);
+      this._scene.add(bombMesh);
+      this._missiles.push({
+        type: 'falling_bomb',
+        mesh: bombMesh, geo: bombGeo, mat: bombMat,
+        startY: dronePos.y - 0.5,
+        traveled: 0, totalDist: dronePos.y - 0.5,
+        speed: (dronePos.y - 0.5) / 0.28,
+        pos: pos.clone(), affected, radius,
+        exploded: false,
+      });
+    } else {
+      bus.emit('weapon:impact', { type: 'bomb', position: pos.clone(), affectedUnits: affected, radius });
+      for (const { unit, damage } of affected) unit.takeDamage(damage);
     }
   }
 
@@ -197,7 +211,7 @@ export class WeaponSystem {
       affected.push({ unit, damage: 0 });
     }
 
-    bus.emit('weapon:impact', { type: 'emp', position: pos.clone(), affectedUnits: affected });
+    bus.emit('weapon:impact', { type: 'emp', position: pos.clone(), affectedUnits: affected, radius: def.radius });
 
     for (const { unit } of affected) {
       unit.stun(def.stunDuration);
@@ -286,6 +300,19 @@ export class WeaponSystem {
           if (m.traveled >= m.dist) {
             m.onArrive();
           } else {
+            remaining.push(m);
+          }
+        } else if (m.type === 'falling_bomb') {
+          m.mesh.position.y -= m.speed * dt;
+          if (m.mesh.position.y <= 0.3 && !m.exploded) {
+            m.exploded = true;
+            this._scene.remove(m.mesh);
+            m.geo.dispose(); m.mat.dispose();
+            bus.emit('weapon:impact', { type: 'bomb', position: m.pos, affectedUnits: m.affected, radius: m.radius });
+            for (const { unit, damage } of m.affected) {
+              if (unit.alive && unit.state !== 'dead') unit.takeDamage(damage);
+            }
+          } else if (!m.exploded) {
             remaining.push(m);
           }
         } else if (m.type === 'missile') {
