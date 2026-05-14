@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Drone Battlefield</title>
+  <style>
+    /* ─── Reset ───────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #0a0f18;
+      font-family: 'Rajdhani', system-ui, sans-serif;
+      color: #fff;
+      touch-action: none;
+    }
+
+    /* ─── Portrait → force landscape by rotating the root ── */
+    @media (orientation: portrait) {
+      #root-rotate {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vh;   /* swap axes */
+        height: 100vw;
+        transform-origin: top left;
+        transform: rotate(90deg) translateY(-100%);
+        overflow: hidden;
+      }
+    }
+    @media (orientation: landscape) {
+      #root-rotate {
+        position: fixed;
+        inset: 0;
+      }
+    }
+
+    /* ─── Canvas ──────────────────────────────────────── */
+    #canvas-container {
+      position: fixed; inset: 0;
+    }
+    #canvas-container canvas {
+      display: block; width: 100% !important; height: 100% !important;
+    }
+
+    /* ─── Overlay ─────────────────────────────────────── */
+    #overlay { position: fixed; inset: 0; pointer-events: none; }
+    #overlay > * { pointer-events: auto; }
+
+    /* ─── Screens ─────────────────────────────────────── */
+    .screen {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      background: rgba(9,16,24,0.88);
+    }
+    .screen h1 {
+      font-size: clamp(2rem,6vw,3.5rem); font-weight: 700;
+      letter-spacing: .12em; text-shadow: 0 2px 12px rgba(0,0,0,.8);
+      text-transform: uppercase; text-align: center;
+    }
+    .screen p {
+      font-size: 1rem; color: rgba(255,255,255,.72);
+      text-shadow: 0 1px 4px rgba(0,0,0,.6);
+      text-align: center; max-width: 360px;
+    }
+
+    /* ─── Buttons ─────────────────────────────────────── */
+    .btn {
+      padding: 14px 36px; font-family: inherit;
+      font-size: 1.1rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase;
+      border: 2px solid rgba(255,255,255,.24); border-radius: 6px;
+      background: rgba(255,255,255,.08); color: #fff;
+      cursor: pointer; transition: background .15s, border-color .15s;
+      touch-action: none;
+    }
+    .btn:active, .btn:hover { background: rgba(255,255,255,.18); border-color: rgba(255,255,255,.5); }
+    .btn.primary { background: #297BFF; border-color: #297BFF; }
+    .btn.primary:hover, .btn.primary:active { background: #1A5FD4; }
+    .btn:disabled, .btn.disabled { opacity: .4; cursor: not-allowed; }
+
+    /* ─── Start screen ────────────────────────────────── */
+    #screen-start { display: flex; flex-direction: column; gap: 0; padding: 24px 16px; justify-content: center; align-items: center; }
+    /* Lang toggle */
+    #lang-toggle-wrap {
+      position: absolute; top: 14px; right: 16px;
+      display: flex; gap: 6px; z-index: 10;
+    }
+    .lang-btn {
+      background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.18);
+      border-radius: 6px; color: rgba(255,255,255,.7); font-family: inherit;
+      font-size: 1.3rem; padding: 3px 7px; cursor: pointer; transition: all .15s;
+      line-height: 1; opacity: .65;
+    }
+    .lang-btn:hover { background: rgba(255,255,255,.14); opacity: .9; }
+    .lang-btn.active { background: rgba(41,123,255,.25); border-color: #297BFF; opacity: 1; box-shadow: 0 0 6px rgba(41,123,255,.3); }
+
+    #drone-canvas-wrap {
+      width: 100%; height: 220px; position: relative; overflow: hidden; pointer-events: none;
+      background: linear-gradient(180deg, #06091A 0%, #0A0F28 60%, #080C1E 100%);
+      border-radius: 10px;
+      box-shadow: inset 0 0 40px rgba(41,123,255,0.08);
+    }
+    #drone-preview-canvas { width: 100%; height: 100%; display: block; }
+
+    /* Floating particles behind drone */
+    .start-particle {
+      position: absolute; border-radius: 50%;
+      background: rgba(100,160,255,0.55); pointer-events: none;
+      animation: particle-drift linear infinite;
+    }
+    @keyframes particle-drift {
+      0%   { transform: translateY(0px) translateX(0px); opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 0.6; }
+      100% { transform: translateY(-80px) translateX(var(--px-drift)); opacity: 0; }
+    }
+
+    /* Title glow */
+    #start-title {
+      font-size: clamp(2rem, 6vw, 3.2rem);
+      letter-spacing: .06em;
+      text-shadow: 0 0 18px rgba(41,123,255,0.55), 0 0 40px rgba(41,123,255,0.2);
+      margin-top: 10px; margin-bottom: 2px;
+      text-align: center;
+    }
+
+    /* Map path — always visible, compact, no scroll */
+    #map-path-wrap {
+      margin-top: 10px; width: 100%; max-width: 680px;
+    }
+    .map-path-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0; flex-wrap: nowrap;
+    }
+    .map-node {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      width: 58px; cursor: default; flex-shrink: 0;
+    }
+    .map-node-circle {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.22);
+      background: rgba(255,255,255,.06);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .85rem; line-height: 1; transition: border-color .2s;
+    }
+    .map-node.cleared .map-node-circle {
+      border-color: #44FF88; background: rgba(68,255,136,.12);
+    }
+    .map-node.current .map-node-circle {
+      border-color: #297BFF; background: rgba(41,123,255,.18);
+      box-shadow: 0 0 8px rgba(41,123,255,.4);
+    }
+    .map-node-name {
+      font-size: .5rem; letter-spacing: .04em; text-transform: uppercase;
+      color: rgba(255,255,255,.45); text-align: center; line-height: 1.2;
+      max-width: 54px; word-break: break-word;
+    }
+    .map-node.cleared .map-node-name { color: #44FF88; }
+    .map-node.current .map-node-name { color: #297BFF; }
+    .map-connector {
+      width: 12px; height: 2px; background: rgba(255,255,255,.15);
+      flex-shrink: 0; margin-bottom: 17px;
+    }
+    .map-connector.cleared { background: #44FF88; opacity: .5; }
+
+    /* ─── Upgrade select screen ───────────────────────── */
+    #screen-upgrade { display: none; }
+    .upgrade-cards {
+      display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+      max-width: 960px; padding: 0 16px;
+    }
+    .upgrade-card {
+      width: 220px; padding: 20px 16px 16px; border-radius: 8px;
+      background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.2);
+      cursor: pointer; transition: background .15s, border-color .15s;
+      touch-action: none; text-align: center; position: relative;
+    }
+    .upgrade-card:hover, .upgrade-card:active {
+      background: rgba(41,123,255,.25); border-color: #297BFF;
+    }
+    /* Active badge variant — subtle warm tint */
+    .upgrade-card--active {
+      border-color: rgba(255,226,138,.35);
+      background: rgba(255,226,138,.06);
+    }
+    .upgrade-card--active:hover, .upgrade-card--active:active {
+      background: rgba(255,226,138,.16); border-color: #FFE28A;
+    }
+    /* Reroll card — dashed border, muted */
+    .upgrade-card--reroll {
+      border-style: dashed; border-color: rgba(255,255,255,.25);
+      background: rgba(255,255,255,.04);
+    }
+    .upgrade-card--reroll:hover, .upgrade-card--reroll:active {
+      background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.5);
+    }
+    .upgrade-card .card-name {
+      font-size: 1rem; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; margin-bottom: 6px;
+    }
+    .upgrade-card .card-cat {
+      font-size: .65rem; letter-spacing: .12em; text-transform: uppercase;
+      color: #FFE28A; margin-bottom: 8px;
+    }
+    .upgrade-card .card-desc {
+      font-size: .8rem; color: rgba(255,255,255,.65); line-height: 1.4;
+    }
+    .card-active-badge {
+      display: inline-block; margin-top: 10px;
+      padding: 2px 8px; border-radius: 3px;
+      background: rgba(255,226,138,.18); border: 1px solid rgba(255,226,138,.4);
+      font-size: .6rem; font-weight: 700; letter-spacing: .15em;
+      text-transform: uppercase; color: #FFE28A;
+    }
+
+    /* ─── Run Over screen ─────────────────────────────── */
+    #screen-run-over { display: none; }
+    .run-stats { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+    .run-stat { font-size: 1rem; color: rgba(255,255,255,.8); letter-spacing: .05em; }
+    .run-stat span { color: #FFE28A; font-weight: 700; }
+    .meta-unlock {
+      margin: 12px 0; padding: 14px 24px;
+      background: rgba(41,123,255,.18); border: 1px solid rgba(41,123,255,.5);
+      border-radius: 8px; text-align: center; max-width: 320px;
+    }
+    .meta-unlock .meta-label {
+      font-size: .65rem; letter-spacing: .15em; text-transform: uppercase;
+      color: #64B3FF; margin-bottom: 4px;
+    }
+    .meta-unlock .meta-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 2px; }
+    .meta-unlock .meta-desc { font-size: .8rem; color: rgba(255,255,255,.65); }
+
+    /* ─── Run Win screen ──────────────────────────────── */
+    #screen-run-win { display: none; }
+
+    /* ─── HUD ─────────────────────────────────────────── */
+    #hud {
+      position: absolute; inset: 0;
+      display: none; flex-direction: column;
+      pointer-events: none;
+    }
+
+    /* Top bar */
+    #hud-top {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 16px 8px;
+      background: rgba(9,16,24,.72);
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+
+    /* HP icons — top-left */
+    #hp-icons {
+      display: flex; gap: 6px; align-items: center;
+    }
+    .hp-icon {
+      width: 22px; height: 22px;
+      background: #297BFF;
+      clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+      transition: background .15s, opacity .3s;
+    }
+    .hp-icon.lost {
+      background: rgba(255,255,255,.15);
+      opacity: .45;
+    }
+    @keyframes hp-lose {
+      0%   { transform: scale(1.6); opacity: 1; }
+      60%  { transform: scale(0.9); }
+      100% { transform: scale(1);   opacity: .45; }
+    }
+    .hp-icon.losing {
+      animation: hp-lose 0.35s ease-out forwards;
+    }
+
+    /* Map / objective — top-right */
+    #map-info {
+      text-align: right;
+    }
+    #map-name {
+      font-size: .75rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; color: #FFE28A;
+      text-shadow: 0 1px 3px rgba(0,0,0,.8);
+    }
+    #objective-status {
+      font-size: .65rem; color: rgba(255,255,255,.6);
+      letter-spacing: .03em; text-shadow: 0 1px 3px rgba(0,0,0,.7);
+      margin-top: 2px;
+    }
+
+    /* Wave / center text */
+    #center-text {
+      position: absolute; top: 48%; left: 50%; transform: translate(-50%, -50%);
+      font-size: 1.3rem; font-weight: 700; letter-spacing: .2em;
+      text-transform: uppercase; color: #FFE28A;
+      text-shadow: 0 2px 12px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .3s;
+    }
+
+    /* Near-miss flash */
+    #near-miss-text {
+      position: absolute; top: 20%; left: 50%; transform: translateX(-50%);
+      font-size: .9rem; font-weight: 700; letter-spacing: .25em;
+      text-transform: uppercase; color: #FF8C3A;
+      text-shadow: 0 2px 8px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .15s;
+    }
+
+    /* Kill-source notification — shown briefly when drone dies */
+    #kill-source-text {
+      position: absolute; top: 38%; left: 50%; transform: translateX(-50%);
+      font-size: .8rem; font-weight: 700; letter-spacing: .2em;
+      text-transform: uppercase; color: #F24848;
+      text-shadow: 0 2px 8px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .3s;
+      white-space: nowrap;
+    }
+
+    /* Death/event comment — dry humorous text below kill-source */
+    #death-comment {
+      position: absolute; top: 44%; left: 50%; transform: translateX(-50%);
+      font-size: .72rem; font-weight: 500; letter-spacing: .12em;
+      text-transform: none; color: #AABBCC;
+      text-shadow: 0 1px 6px rgba(0,0,0,.9);
+      pointer-events: none; opacity: 0;
+      transition: opacity .4s;
+      white-space: nowrap;
+    }
+
+    /* Tutorial tooltip — fades in at 3s, out at 6s on map 1 */
+    #hud-tooltip {
+      position: absolute; bottom: 28%; left: 50%; transform: translateX(-50%);
+      padding: 8px 20px; border-radius: 6px;
+      background: rgba(9,16,24,.82); border: 1px solid rgba(255,226,138,.4);
+      font-size: .75rem; font-weight: 700; letter-spacing: .15em;
+      text-transform: uppercase; color: #FFE28A;
+      text-shadow: 0 1px 4px rgba(0,0,0,.8);
+      pointer-events: none; opacity: 0;
+      transition: opacity .6s;
+      white-space: nowrap;
+    }
+
+    /* ── Hit vignette — full-screen red flash on damage ── */
+    #hit-vignette {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(220,20,20,0.65) 100%);
+      pointer-events: none; opacity: 0;
+      transition: opacity 0.05s;
+    }
+
+    /* ── Hull breach text ── */
+    #hull-breach-text {
+      position: absolute; top: 18%; left: 50%; transform: translateX(-50%);
+      font-size: 1.1rem; font-weight: 700; letter-spacing: .3em;
+      text-transform: uppercase; color: #FF2222;
+      text-shadow: 0 2px 12px rgba(255,0,0,.9);
+      pointer-events: none; opacity: 0;
+      white-space: nowrap;
+    }
+
+    /* ── Directional hit arrows ── */
+    .hit-arrow {
+      position: absolute; width: 0; height: 0;
+      pointer-events: none; opacity: 0;
+    }
+    /* Arrow shapes via borders */
+    #hit-arrow-top {
+      top: 10px; left: 50%; transform: translateX(-50%);
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-bottom: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+    #hit-arrow-bottom {
+      bottom: 140px; left: 50%; transform: translateX(-50%);
+      border-left: 12px solid transparent;
+      border-right: 12px solid transparent;
+      border-top: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+    #hit-arrow-left {
+      left: 10px; top: 50%; transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-right: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+    #hit-arrow-right {
+      right: 10px; top: 50%; transform: translateY(-50%);
+      border-top: 12px solid transparent;
+      border-bottom: 12px solid transparent;
+      border-left: 20px solid #FF2222;
+      filter: drop-shadow(0 0 4px rgba(255,0,0,.8));
+    }
+
+    /* ── Enemy drone approach warning ── */
+    #drone-warning {
+      position: absolute; top: 14%; left: 50%; transform: translateX(-50%);
+      padding: 4px 16px; border-radius: 4px;
+      background: rgba(200,0,0,.25); border: 1px solid rgba(255,30,30,.5);
+      font-size: .7rem; font-weight: 700; letter-spacing: .2em;
+      text-transform: uppercase; color: #FF4444;
+      text-shadow: 0 1px 4px rgba(0,0,0,.8);
+      pointer-events: none; opacity: 0;
+      white-space: nowrap;
+    }
+
+    /* Bottom controls */
+    #hud-bottom {
+      margin-top: auto;
+      display: flex; justify-content: space-between; align-items: flex-end;
+      padding: 16px; pointer-events: auto;
+    }
+
+    /* Joystick */
+    #joystick {
+      width: 110px; height: 110px;
+      background: rgba(9,16,24,.55);
+      border: 2px solid rgba(255,255,255,.2); border-radius: 50%;
+      position: relative; touch-action: none;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #joystick-knob {
+      width: 44px; height: 44px;
+      background: rgba(255,255,255,.85); border-radius: 50%;
+      position: absolute; transition: transform .1s;
+    }
+
+    /* Fire buttons cluster — bottom right */
+    #fire-cluster {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+
+    @keyframes ready-flash {
+      0%   { box-shadow: 0 0 0px rgba(80,255,120,0); border-color: inherit; }
+      30%  { box-shadow: 0 0 10px rgba(80,255,120,0.9); border-color: #50FF78; }
+      60%  { box-shadow: 0 0 6px rgba(80,255,120,0.5); border-color: #50FF78; }
+      100% { box-shadow: 0 0 0px rgba(80,255,120,0); border-color: inherit; }
+    }
+    .weapon-btn.ready-flash {
+      animation: ready-flash 0.55s ease-out forwards;
+    }
+    .weapon-btn.weapon-ready {
+      border-color: #50FF78 !important;
+    }
+
+    /* Secondary fire button — smaller, above primary */
+    #fire-secondary-btn {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: #1A6B2C; border: 3px solid rgba(255,255,255,.25);
+      color: #fff; font-family: inherit; font-size: .6rem;
+      font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      cursor: pointer; touch-action: none;
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      gap: 1px; position: relative; overflow: hidden;
+      box-shadow: 0 3px 14px rgba(26,107,44,.45);
+      transition: background .1s, opacity .2s;
+    }
+    #fire-secondary-btn.unlocked { display: flex; }
+    #fire-secondary-btn:active { background: #0F4019; }
+    #fire-secondary-btn.disabled { background: #333; box-shadow: none; opacity: .5; }
+
+    /* Primary fire button — large red */
+    #fire-primary-btn {
+      width: 90px; height: 90px; border-radius: 50%;
+      background: #C0392B; border: 3px solid rgba(255,255,255,.3);
+      color: #fff; font-family: inherit; font-size: .75rem;
+      font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      cursor: pointer; touch-action: none;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px; position: relative; overflow: hidden;
+      box-shadow: 0 4px 20px rgba(192,57,43,.5);
+      transition: background .1s, opacity .2s;
+    }
+    #fire-primary-btn:active  { background: #922B21; }
+    #fire-primary-btn.disabled { background: #555; box-shadow: none; opacity: .5; }
+
+    /* Cooldown arc fills */
+    .cooldown-fill {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 100%;
+      background: rgba(255,255,255,.18);
+      transition: height .1s linear;
+      pointer-events: none;
+    }
+
+    .weapon-label { font-size: .8rem; position: relative; z-index: 1; }
+    .cooldown-label { font-size: .6rem; opacity: .75; position: relative; z-index: 1; }
+
+    /* Keyboard hint */
+    #kb-hint {
+      position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+      font-size: .65rem; color: rgba(255,255,255,.3);
+      letter-spacing: .05em; pointer-events: none;
+    }
+
+    /* Coin display — top bar */
+    #coin-display {
+      display: flex; align-items: center; gap: 5px;
+      font-size: .75rem; font-weight: 700; letter-spacing: .08em;
+      color: #FFE28A;
+    }
+    #coin-display .coin-icon { font-size: .85rem; }
+
+    /* ─── Workshop screen ─────────────────────────────── */
+    #screen-workshop { display: none; }
+    .ws-header {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 4px;
+    }
+    .ws-coins-badge {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 18px; border-radius: 20px;
+      background: rgba(255,226,138,.12); border: 1px solid rgba(255,226,138,.4);
+      font-size: 1rem; font-weight: 700; color: #FFE28A;
+    }
+    #workshop-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px; max-width: 820px; width: 100%; padding: 0 16px;
+      max-height: 55vh; overflow-y: auto;
+    }
+    .ws-card {
+      padding: 16px 14px 12px; border-radius: 8px;
+      background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18);
+      cursor: pointer; transition: background .15s, border-color .15s;
+      touch-action: none; text-align: center;
+    }
+    .ws-card:hover:not(.ws-card--owned) { background: rgba(41,123,255,.2); border-color: #297BFF; }
+    .ws-card--owned {
+      border-color: rgba(68,255,136,.35); background: rgba(68,255,136,.06); cursor: default;
+    }
+    .ws-card--locked { opacity: .55; }
+    .ws-card-preview {
+      width: 64px; height: 64px; margin: 0 auto 8px;
+      display: flex; align-items: center; justify-content: center;
+      filter: drop-shadow(0 0 6px rgba(41,123,255,.35));
+    }
+    .ws-card-preview svg { width: 100%; height: 100%; }
+    .ws-card--owned .ws-card-preview { filter: drop-shadow(0 0 6px rgba(68,255,136,.3)); }
+    .ws-card-name { font-size: .9rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+    .ws-card-cat  { font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; color: #FFE28A; margin-bottom: 6px; }
+    .ws-card-desc { font-size: .75rem; color: rgba(255,255,255,.6); line-height: 1.35; margin-bottom: 10px; }
+    .ws-card-foot { font-size: .8rem; font-weight: 700; }
+    .ws-cost { color: #FFE28A; }
+    .ws-cost--broke { color: rgba(255,255,255,.3); }
+    .ws-owned-badge {
+      padding: 2px 8px; border-radius: 3px;
+      background: rgba(68,255,136,.18); border: 1px solid rgba(68,255,136,.4);
+      font-size: .6rem; letter-spacing: .15em; text-transform: uppercase; color: #44FF88;
+    }
+
+    /* ─── Loadout screen ──────────────────────────────── */
+    #screen-loadout { display: none; }
+    .lo-slots {
+      display: flex; gap: 12px; margin: 4px 0 8px; align-items: center;
+    }
+    .lo-slot-label { font-size: .65rem; letter-spacing: .1em; color: rgba(255,255,255,.4); text-transform: uppercase; margin-right: 4px; }
+    .lo-slot {
+      padding: 6px 18px; border-radius: 6px; min-width: 130px; text-align: center;
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.2);
+      font-size: .85rem; font-weight: 700; letter-spacing: .06em;
+    }
+    #loadout-weapons {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px; max-width: 560px; width: 100%; padding: 0 16px;
+    }
+    .lo-card {
+      padding: 18px 12px; border-radius: 8px;
+      background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18);
+      cursor: pointer; transition: background .15s, border-color .15s;
+      touch-action: none; text-align: center;
+    }
+    .lo-card:hover  { background: rgba(41,123,255,.2); border-color: #297BFF; }
+    .lo-card--selected { background: rgba(41,123,255,.22); border-color: #297BFF; box-shadow: 0 0 10px rgba(41,123,255,.4); }
+    .lo-card-icon { font-size: 1.6rem; margin-bottom: 6px; }
+    .lo-card-name { font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+
+    /* ─── Workshop / Loadout – mobile responsive ──────────── */
+    /* On narrow screens: vertical stack — showcase on top, content below */
+    @media (max-width: 639px) {
+      #screen-workshop,
+      #screen-loadout {
+        flex-direction: column !important;
+        overflow-y: auto;
+      }
+      #ws-showcase-wrap,
+      #lo-showcase-wrap {
+        width: 100% !important;
+        min-width: unset !important;
+        height: 200px;
+        flex-shrink: 0;
+        border-right: none !important;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+      }
+      #ws-showcase-wrap canvas,
+      #lo-showcase-wrap canvas {
+        height: 200px !important;
+      }
+      #workshop-grid {
+        max-height: none;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      }
+      #loadout-weapons {
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      }
+    }
+  </style>
+  <script type="module" crossorigin src="/DroneGame/assets/index-OZ-t_YjL.js"></script>
+</head>
+<body>
+<div id="root-rotate">
+
+  <div id="canvas-container"></div>
+
+  <div id="overlay">
+
+    <!-- ── Start ──────────────────────────────────────── -->
+    <div id="screen-start" class="screen">
+      <div id="lang-toggle-wrap"></div>
+      <div id="drone-canvas-wrap">
+        <canvas id="drone-preview-canvas"></canvas>
+      </div>
+      <h1 id="start-title">Drohnenwahn</h1>
+      <p data-i18n="start.subtitle">Offiziell nicht genehmigt. Budget bereits überschritten. Viel Erfolg.</p>
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button id="btn-play" class="btn primary" data-i18n="start.newRun">New Run</button>
+        <button id="btn-start-workshop" class="btn" data-i18n="start.workshop">Workshop</button>
+      </div>
+      <div id="map-path-wrap">
+        <div class="map-path-row" id="map-path-row"></div>
+      </div>
+    </div>
+
+    <!-- ── Upgrade Select ────────────────────────────── -->
+    <div id="screen-upgrade" class="screen">
+      <h1 data-i18n="upgrade.title">Choose Upgrade</h1>
+      <p id="upgrade-map-label" style="color:#FFE28A;font-weight:700;letter-spacing:.1em;"></p>
+      <div class="upgrade-cards" id="upgrade-cards"></div>
+    </div>
+
+    <!-- ── Workshop ────────────────────────────────────── -->
+    <div id="screen-workshop" class="screen" style="flex-direction:row;align-items:stretch;gap:0;padding:0;">
+      <!-- Left: 3D drone showcase -->
+      <div id="ws-showcase-wrap" style="
+        width:280px;min-width:200px;flex-shrink:0;
+        position:relative;overflow:hidden;
+        background:rgba(0,0,0,.3);border-right:1px solid rgba(255,255,255,.08);
+      ">
+        <canvas id="ws-showcase-canvas" style="width:100%;height:100%;display:block;"></canvas>
+        <div id="ws-showcase-labels" style="position:absolute;inset:0;pointer-events:none;"></div>
+        <div style="position:absolute;bottom:10px;left:0;right:0;text-align:center;font-size:.6rem;color:rgba(255,255,255,.3);letter-spacing:.1em;text-transform:uppercase;">Current Loadout</div>
+      </div>
+      <!-- Right: shop -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px 16px;overflow-y:auto;">
+        <div class="ws-header">
+          <h1 data-i18n="ws.title">Workshop</h1>
+          <div class="ws-coins-badge">⬡ <span id="workshop-coins">0</span></div>
+        </div>
+        <p style="color:rgba(255,255,255,.5);font-size:.82rem;margin-bottom:4px;" data-i18n="ws.subtitle">Spend coins for permanent upgrades</p>
+        <div id="workshop-grid"></div>
+        <button id="btn-workshop-continue" class="btn primary" style="margin-top:12px;" data-i18n="ws.continue">Continue</button>
+      </div>
+    </div>
+
+    <!-- ── Loadout ──────────────────────────────────────── -->
+    <div id="screen-loadout" class="screen" style="flex-direction:row;align-items:stretch;gap:0;padding:0;">
+      <!-- Left: 3D drone showcase -->
+      <div id="lo-showcase-wrap" style="
+        width:280px;min-width:200px;flex-shrink:0;
+        position:relative;overflow:hidden;
+        background:rgba(0,0,0,.3);border-right:1px solid rgba(255,255,255,.08);
+      ">
+        <canvas id="lo-showcase-canvas" style="width:100%;height:100%;display:block;"></canvas>
+        <div id="lo-showcase-labels" style="position:absolute;inset:0;pointer-events:none;"></div>
+      </div>
+      <!-- Right: tab content (built dynamically by LoadoutScreen.js) -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;padding:16px 0 0;overflow:hidden;">
+        <h1 data-i18n="loadout.title" style="margin-bottom:8px;">Loadout</h1>
+        <div id="lo-right-panel" style="flex:1;width:100%;display:flex;flex-direction:column;overflow:hidden;"></div>
+        <button id="btn-loadout-confirm" class="btn primary" style="margin:12px 16px 16px;flex-shrink:0;" data-i18n="loadout.confirm">Start Run</button>
+      </div>
+    </div>
+
+    <!-- ── Run Over ──────────────────────────────────── -->
+    <div id="screen-run-over" class="screen">
+      <h1 style="color:#F24848;" data-i18n="runover.title">Drone Down</h1>
+      <div class="run-stats">
+        <div class="run-stat"><span data-i18n="runover.kills">Kills</span>: <span id="stat-kills">0</span></div>
+        <div class="run-stat"><span data-i18n="runover.time">Time</span>: <span id="stat-time">0:00</span></div>
+      </div>
+      <div class="meta-unlock" id="meta-unlock-block">
+        <div class="meta-label" data-i18n="runover.metaTitle">Permanent Unlock</div>
+        <div class="meta-name" id="meta-unlock-name">—</div>
+        <div class="meta-desc" id="meta-unlock-desc"></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+        <button id="btn-run-over-workshop" class="btn" data-i18n="runover.workshop">Workshop</button>
+        <button id="btn-run-over-new" class="btn primary" data-i18n="start.newRun">New Run</button>
+        <button id="btn-run-over-menu" class="btn" data-i18n="runover.menu">Main Menu</button>
+      </div>
+    </div>
+
+    <!-- ── Run Win ───────────────────────────────────── -->
+    <div id="screen-run-win" class="screen">
+      <h1 style="color:#FFE28A;" data-i18n="runwin.title">Mission Complete</h1>
+      <div class="run-stats">
+        <div class="run-stat"><span data-i18n="runwin.kills">Kills</span>: <span id="win-stat-kills">0</span></div>
+        <div class="run-stat"><span data-i18n="runwin.time">Time</span>: <span id="win-stat-time">0:00</span></div>
+      </div>
+      <div class="meta-unlock" id="win-meta-unlock-block">
+        <div class="meta-label" data-i18n="runwin.metaTitle">Permanent Unlock</div>
+        <div class="meta-name" id="win-meta-unlock-name">—</div>
+        <div class="meta-desc" id="win-meta-unlock-desc"></div>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
+        <button id="btn-run-win-workshop" class="btn" data-i18n="runwin.workshop">Workshop</button>
+        <button id="btn-run-win-new" class="btn primary" data-i18n="runwin.newRun">New Run</button>
+        <button id="btn-run-win-menu" class="btn" data-i18n="runwin.menu">Main Menu</button>
+      </div>
+    </div>
+
+    <!-- ── HUD ───────────────────────────────────────── -->
+    <div id="hud">
+
+      <div id="hud-top">
+        <!-- HP icons — top left -->
+        <div id="hp-icons">
+          <div class="hp-icon" id="hp-1"></div>
+          <div class="hp-icon" id="hp-2"></div>
+          <div class="hp-icon" id="hp-3"></div>
+        </div>
+
+        <!-- Coin display — top center -->
+        <div id="coin-display">
+          <span class="coin-icon">⬡</span>
+          <span id="hud-coins">0</span>
+        </div>
+
+        <!-- Map info — top right -->
+        <div id="map-info">
+          <div id="map-name">—</div>
+          <div id="objective-status">—</div>
+        </div>
+      </div>
+
+      <!-- Wave / center notification -->
+      <div id="center-text"></div>
+      <!-- Near-miss flash -->
+      <div id="near-miss-text">NEAR MISS</div>
+      <!-- Kill source (shown on death) -->
+      <div id="kill-source-text"></div>
+      <!-- Death comment — dry humor line below kill source -->
+      <div id="death-comment"></div>
+      <!-- Tutorial tooltip (map 1 only, one-time) -->
+      <div id="hud-tooltip">FLAK AHEAD — KEEP MOVING</div>
+
+      <!-- Hit vignette — full-screen red flash on damage -->
+      <div id="hit-vignette"></div>
+      <!-- Hull breach notification -->
+      <div id="hull-breach-text">HULL BREACH</div>
+      <!-- Directional hit arrows -->
+      <div class="hit-arrow" id="hit-arrow-top"></div>
+      <div class="hit-arrow" id="hit-arrow-bottom"></div>
+      <div class="hit-arrow" id="hit-arrow-left"></div>
+      <div class="hit-arrow" id="hit-arrow-right"></div>
+      <!-- Enemy drone approach warning -->
+      <div id="drone-warning">⚠ ENEMY DRONE</div>
+
+      <div id="hud-bottom">
+        <div id="joystick">
+          <div id="joystick-knob"></div>
+        </div>
+
+        <!-- Fire buttons -->
+        <div id="fire-cluster">
+          <!-- Secondary slot 2 (hidden until unlocked) -->
+          <button id="fire-secondary2-btn" class="weapon-btn" style="
+            width:56px;height:56px;border-radius:50%;
+            background:#1A4B6B;border:3px solid rgba(255,255,255,.25);
+            color:#fff;font-family:inherit;font-size:.55rem;
+            font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+            cursor:pointer;touch-action:none;
+            display:none;flex-direction:column;align-items:center;justify-content:center;
+            gap:1px;position:relative;overflow:hidden;
+            box-shadow:0 3px 12px rgba(26,75,107,.45);
+            transition:background .1s,opacity .2s;
+          ">
+            <div class="cooldown-fill" id="secondary2-cooldown-fill"></div>
+            <span class="weapon-label" id="secondary2-weapon-label">—</span>
+            <span class="cooldown-label" id="secondary2-cooldown-label">READY</span>
+          </button>
+
+          <!-- Secondary slot 1 (hidden until Dual Weapons upgrade) -->
+          <button id="fire-secondary-btn" class="weapon-btn">
+            <div class="cooldown-fill" id="secondary-cooldown-fill"></div>
+            <span class="weapon-label" id="secondary-weapon-label">EMP</span>
+            <span class="cooldown-label" id="secondary-cooldown-label">READY</span>
+          </button>
+
+          <!-- Primary (always visible) -->
+          <button id="fire-primary-btn">
+            <div class="cooldown-fill" id="primary-cooldown-fill"></div>
+            <span class="weapon-label" id="primary-weapon-label">CANNON</span>
+            <span class="cooldown-label" id="primary-cooldown-label">HOLD</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="kb-hint">WASD · Space = Primary · Shift = Sec 1 · R = Sec 2</div>
+    </div>
+
+  </div>
+
+</div><!-- #root-rotate -->
+</body>
+</html>
