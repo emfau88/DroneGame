@@ -627,6 +627,76 @@
       border-bottom-color: #297BFF;
     }
 
+    /* Workshop loadout panel */
+    .ws-loadout-panel {
+      flex-shrink: 0;
+      padding: 10px 12px 8px;
+      background: rgba(0,0,0,.25);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .ws-loadout-label {
+      font-size: .58rem;
+      font-weight: 700;
+      letter-spacing: .14em;
+      color: rgba(255,255,255,.35);
+      margin-bottom: 7px;
+    }
+    .ws-loadout-slots {
+      display: flex;
+      gap: 8px;
+    }
+    .ws-slot {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      background: rgba(255,255,255,.06);
+      border: 1.5px solid rgba(255,255,255,.12);
+      cursor: pointer;
+      touch-action: manipulation;
+      transition: border-color .15s, background .15s;
+      min-width: 0;
+    }
+    .ws-slot--active {
+      border-color: #297BFF;
+      background: rgba(41,123,255,.18);
+      box-shadow: 0 0 0 2px rgba(41,123,255,.25);
+    }
+    .ws-slot-num {
+      font-size: .65rem;
+      font-weight: 800;
+      color: rgba(255,255,255,.45);
+      flex-shrink: 0;
+    }
+    .ws-slot--active .ws-slot-num { color: #297BFF; }
+    .ws-slot-name {
+      flex: 1;
+      font-size: .72rem;
+      font-weight: 600;
+      color: rgba(255,255,255,.7);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ws-slot--active .ws-slot-name { color: #fff; }
+    .ws-slot-clear {
+      font-size: .75rem;
+      color: rgba(255,255,255,.35);
+      flex-shrink: 0;
+      padding: 2px 4px;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .ws-slot-clear:active { color: #F24848; }
+    .ws-slot-hint {
+      margin-top: 6px;
+      font-size: .6rem;
+      color: rgba(255,255,255,.3);
+      letter-spacing: .04em;
+    }
+
     /* Scrollable content */
     .shop-tab-content {
       flex: 1;
@@ -968,6 +1038,7 @@
         <span class="shop-coins-badge">⬡ <span id="workshop-coins">0</span></span>
         <button id="btn-workshop-continue" class="shop-close-btn" data-i18n="ws.continue">✕ DONE</button>
       </div>
+      <div id="ws-loadout-panel" class="ws-loadout-panel"></div>
       <div class="shop-tab-bar" id="ws-tab-bar">
         <button class="shop-tab active" data-tab="drones" data-i18n="ws.tabDrones">DRONES</button>
         <button class="shop-tab" data-tab="weapons" data-i18n="ws.tabWeapons">WEAPONS</button>
@@ -985,7 +1056,6 @@
       </div>
       <div class="shop-tab-bar" id="lo-tab-bar">
         <button class="shop-tab active" data-tab="drone" data-i18n="loadout.tabDrone">DRONE</button>
-        <button class="shop-tab" data-tab="weapons" data-i18n="loadout.tabWeapons">WEAPONS</button>
       </div>
       <div class="shop-tab-content" id="lo-tab-content"></div>
     </div>

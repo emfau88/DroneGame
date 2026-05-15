@@ -9,14 +9,14 @@ const WEAPON_DEFS = {
   cannon: {
     type: 'cannon',
     damage: 8,
-    cooldownDuration: 0.22,
+    cooldownDuration: 0.28,
     range: 14,
   },
   bomb: {
     type: 'bomb',
     damage: 55,
     radius: 5.2,
-    cooldownDuration: 3.5,
+    cooldownDuration: 4.2,
     falloff: 'linear',
   },
   emp: {
@@ -24,12 +24,12 @@ const WEAPON_DEFS = {
     damage: 0,
     radius: 7.5,
     stunDuration: 3.0,
-    cooldownDuration: 8.0,
+    cooldownDuration: 9.0,
   },
   missile: {
     type: 'missile',
     damage: 38,
-    cooldownDuration: 1.8,
+    cooldownDuration: 2.2,
     range: 22,
   },
   cluster: {
@@ -37,7 +37,7 @@ const WEAPON_DEFS = {
     damage: 22,
     submunitions: 6,
     radius: 10,
-    cooldownDuration: 12.0,
+    cooldownDuration: 14.0,
   },
 };
 

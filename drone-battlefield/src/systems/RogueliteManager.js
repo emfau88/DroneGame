@@ -211,7 +211,7 @@ export class RogueliteManager {
 
   /**
    * End the current run. Returns stats and any new meta upgrade unlocked.
-   * @param {boolean} cleared - true if all 8 maps completed
+   * @param {boolean} cleared - true if all 7 maps completed
    * @returns {{ stats: object, newMetaUpgrade: object|null }}
    */
   endRun(cleared) {

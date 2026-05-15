@@ -221,7 +221,7 @@ export class EffectSystem {
     mesh.position.copy(position);
     mesh.position.y = 0.5;
     this._scene.add(mesh);
-    this._effects.push({ mesh, timer: 0.55, maxTimer: 0.55, type: 'explosion' });
+    this._effects.push({ mesh, timer: 0.72, maxTimer: 0.72, type: 'explosion' });
 
     // Smoke particles
     for (let i = 0; i < SMOKE_COUNT; i++) {
@@ -233,7 +233,7 @@ export class EffectSystem {
         position.z + (Math.random() - 0.5) * 4,
       );
       this._scene.add(s);
-      this._effects.push({ mesh: s, timer: 2.5, maxTimer: 2.5, type: 'smoke' });
+      this._effects.push({ mesh: s, timer: 3.2, maxTimer: 3.2, type: 'smoke' });
     }
 
     // Ground scorch
@@ -242,7 +242,7 @@ export class EffectSystem {
     scorch.rotation.x = -Math.PI / 2;
     scorch.position.set(position.x, 0.02, position.z);
     this._scene.add(scorch);
-    this._effects.push({ mesh: scorch, timer: 8, maxTimer: 8, type: 'scorch' });
+    this._effects.push({ mesh: scorch, timer: 11, maxTimer: 11, type: 'scorch' });
 
     // Debris
     for (let i = 0; i < DEBRIS_COUNT; i++) {

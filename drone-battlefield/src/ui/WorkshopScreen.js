@@ -2,6 +2,8 @@ import { bus }  from '../core/EventBus.js';
 import { t }    from '../core/i18n.js';
 import { WORKSHOP_ITEMS, DRONE_MODELS, WORKSHOP_ITEMS as _WS } from '../systems/RogueliteManager.js';
 
+const WEAPON_NAMES = { missile: 'Missile', bomb: 'Bomb Bay', emp: 'EMP', cluster: 'Cluster' };
+
 // ── Inline SVG icons ─────────────────────────────────────────────────────────
 
 const DRONE_SVG = {
@@ -78,14 +80,21 @@ const UPGRADE_SVG = `<svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.o
   <polygon points="24,12 36,18 36,30 24,36 12,30 12,18" stroke="#FFE28A" stroke-width="1.5" fill="none" opacity=".4"/>
 </svg>`;
 
+const LOADOUT_KEY      = 'drone_strike_loadout';
+const SLOT_HINT_KEY    = 'drone_strike_slot_hint_seen';
+
 export class WorkshopScreen {
   constructor() {
     this._el         = null;
     this._coinsEl    = null;
     this._contentEl  = null;
     this._tabBar     = null;
+    this._loadoutEl  = null;
     this._roguelite  = null;
     this._activeTab  = 'drones';
+    this._slot1      = null;
+    this._slot2      = null;
+    this._activeSlot = null; // 1 or 2 — which slot is highlighted for assignment
   }
 
   init(roguelite) {
@@ -94,6 +103,7 @@ export class WorkshopScreen {
     this._coinsEl   = document.getElementById('workshop-coins');
     this._contentEl = document.getElementById('ws-tab-content');
     this._tabBar    = document.getElementById('ws-tab-bar');
+    this._loadoutEl = document.getElementById('ws-loadout-panel');
 
     // Continue / close button
     const continueBtn = document.getElementById('btn-workshop-continue');
@@ -115,18 +125,110 @@ export class WorkshopScreen {
         this._renderContent();
       });
     }
+
+    // Loadout panel slot clicks (event delegation)
+    if (this._loadoutEl) {
+      this._loadoutEl.addEventListener('pointerdown', (e) => {
+        const slotBtn = e.target.closest('[data-slot]');
+        const clearBtn = e.target.closest('[data-clear-slot]');
+        if (clearBtn) {
+          bus.emit('ui:click');
+          const n = parseInt(clearBtn.dataset.clearSlot, 10);
+          if (n === 1) this._slot1 = null;
+          else         this._slot2 = null;
+          if (this._activeSlot === n) this._activeSlot = null;
+          this._saveLoadout();
+          this._renderLoadoutPanel();
+          this._renderContent();
+          return;
+        }
+        if (slotBtn) {
+          bus.emit('ui:click');
+          const n = parseInt(slotBtn.dataset.slot, 10);
+          this._activeSlot = (this._activeSlot === n) ? null : n;
+          this._renderLoadoutPanel();
+          if (this._activeTab !== 'weapons') {
+            this._activeTab = 'weapons';
+            this._updateTabBar();
+            this._renderContent();
+          }
+        }
+      });
+    }
   }
 
   show() {
-    this._activeTab = 'drones';
+    this._activeTab  = 'drones';
+    this._activeSlot = null;
+    this._loadLoadout();
     this._updateCoins();
     this._updateTabBar();
+    this._renderLoadoutPanel();
     this._renderContent();
     if (this._el) this._el.style.display = 'flex';
   }
 
   hide() {
     if (this._el) this._el.style.display = 'none';
+  }
+
+  _loadLoadout() {
+    try {
+      const raw = localStorage.getItem(LOADOUT_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        this._slot1 = data.slot1 || null;
+        this._slot2 = data.slot2 || null;
+      } else {
+        const lo = this._roguelite?.loadout;
+        this._slot1 = (lo && !Array.isArray(lo)) ? (lo.slot1 || null) : null;
+        this._slot2 = (lo && !Array.isArray(lo)) ? (lo.slot2 || null) : null;
+      }
+    } catch (_) { this._slot1 = null; this._slot2 = null; }
+    // Validate: clear slots for weapons no longer owned
+    if (this._slot1 && !this._roguelite.isWorkshopUnlocked('unlock_' + this._slot1)) this._slot1 = null;
+    if (this._slot2 && !this._roguelite.isWorkshopUnlocked('unlock_' + this._slot2)) this._slot2 = null;
+  }
+
+  _saveLoadout() {
+    try {
+      const data = { slot1: this._slot1, slot2: this._slot2 };
+      localStorage.setItem(LOADOUT_KEY, JSON.stringify(data));
+      if (this._roguelite) {
+        this._roguelite.loadout = {
+          droneType: this._roguelite.selectedDrone,
+          slot1: this._slot1,
+          slot2: this._slot2,
+        };
+      }
+    } catch (_) {}
+  }
+
+  _renderLoadoutPanel() {
+    if (!this._loadoutEl) return;
+    const wn = (w) => w ? (WEAPON_NAMES[w] || w.toUpperCase()) : null;
+    const s1 = this._slot1;
+    const s2 = this._slot2;
+    const a  = this._activeSlot;
+
+    const showHint = !localStorage.getItem(SLOT_HINT_KEY) && !s1 && !s2;
+
+    this._loadoutEl.innerHTML = `
+      <div class="ws-loadout-label">YOUR LOADOUT</div>
+      <div class="ws-loadout-slots">
+        <div class="ws-slot${a === 1 ? ' ws-slot--active' : ''}" data-slot="1">
+          <span class="ws-slot-num">S1</span>
+          <span class="ws-slot-name">${s1 ? wn(s1) : '— empty —'}</span>
+          ${s1 ? `<span class="ws-slot-clear" data-clear-slot="1">✕</span>` : ''}
+        </div>
+        <div class="ws-slot${a === 2 ? ' ws-slot--active' : ''}" data-slot="2">
+          <span class="ws-slot-num">S2</span>
+          <span class="ws-slot-name">${s2 ? wn(s2) : '— empty —'}</span>
+          ${s2 ? `<span class="ws-slot-clear" data-clear-slot="2">✕</span>` : ''}
+        </div>
+      </div>
+      ${showHint ? '<div class="ws-slot-hint">Tap a slot → then tap a weapon to assign</div>' : ''}
+    `;
   }
 
   _updateCoins() {
@@ -236,15 +338,43 @@ export class WorkshopScreen {
     this._contentEl.appendChild(grid);
   }
 
+  _assignWeapon(weaponId) {
+    // If already assigned to slot 1, and slot 1 is active or no active slot → clear it
+    if (this._slot1 === weaponId) { this._slot1 = null; this._activeSlot = null; this._saveLoadout(); this._renderLoadoutPanel(); this._renderContent(); return; }
+    if (this._slot2 === weaponId) { this._slot2 = null; this._activeSlot = null; this._saveLoadout(); this._renderLoadoutPanel(); this._renderContent(); return; }
+
+    // Assign to active slot if set
+    if (this._activeSlot === 1)      { this._slot1 = weaponId; this._activeSlot = null; }
+    else if (this._activeSlot === 2) { this._slot2 = weaponId; this._activeSlot = null; }
+    else if (!this._slot1)           { this._slot1 = weaponId; }
+    else if (!this._slot2)           { this._slot2 = weaponId; }
+    else                             { this._slot1 = weaponId; } // both full → replace slot 1
+
+    // Mark hint as seen once player has assigned anything
+    try { localStorage.setItem(SLOT_HINT_KEY, '1'); } catch (_) {}
+    this._saveLoadout();
+    this._renderLoadoutPanel();
+    this._renderContent();
+  }
+
   _makeWeaponCard(item) {
-    const owned  = this._roguelite.isWorkshopUnlocked(item.id);
-    const afford = this._roguelite.coins >= item.cost;
+    const owned    = this._roguelite.isWorkshopUnlocked(item.id);
+    const afford   = this._roguelite.coins >= item.cost;
     const weaponId = item.id.replace('unlock_', '');
+    const inSlot1  = this._slot1 === weaponId;
+    const inSlot2  = this._slot2 === weaponId;
+    const assigned = inSlot1 || inSlot2;
 
     const card = document.createElement('div');
-    card.className = 'shop-card' + (owned ? ' shop-card--owned' : (!afford ? ' shop-card--locked' : ''));
+    card.className = 'shop-card' + (assigned ? ' shop-card--selected' : (owned ? ' shop-card--owned' : (!afford ? ' shop-card--locked' : '')));
 
-    if (owned) {
+    // Slot badge top-left if assigned
+    if (inSlot1 || inSlot2) {
+      const badge = document.createElement('span');
+      badge.style.cssText = 'position:absolute;top:4px;left:5px;font-size:.75rem;font-weight:700;color:#297BFF;line-height:1;';
+      badge.textContent = inSlot1 ? '①' : '②';
+      card.appendChild(badge);
+    } else if (owned) {
       const corner = document.createElement('span');
       corner.className = 'shop-card-owned-corner';
       corner.textContent = '✓';
@@ -261,19 +391,17 @@ export class WorkshopScreen {
     nameEl.textContent = t(item.nameKey) || item.id;
     card.appendChild(nameEl);
 
-    const cat = document.createElement('div');
-    cat.className = 'shop-card-stat';
-    cat.textContent = item.category;
-    card.appendChild(cat);
+    const stateEl = document.createElement('div');
+    stateEl.className = 'shop-card-stat';
+    if (inSlot1) stateEl.textContent = 'SLOT 1 ✓';
+    else if (inSlot2) stateEl.textContent = 'SLOT 2 ✓';
+    else if (owned) stateEl.textContent = 'tap to assign';
+    else stateEl.textContent = item.category;
+    card.appendChild(stateEl);
 
     const foot = document.createElement('div');
     foot.className = 'shop-card-foot';
-    if (owned) {
-      const badge = document.createElement('span');
-      badge.className = 'shop-card-owned-badge';
-      badge.textContent = t('ws.owned') || 'OWNED';
-      foot.appendChild(badge);
-    } else {
+    if (!owned) {
       const btn = document.createElement('span');
       btn.className = 'shop-card-buy' + (afford ? '' : ' shop-card-buy--broke');
       btn.textContent = `⬡ ${item.cost}`;
@@ -281,16 +409,19 @@ export class WorkshopScreen {
     }
     card.appendChild(foot);
 
-    if (!owned) {
-      card.addEventListener('pointerdown', () => {
+    card.addEventListener('pointerdown', () => {
+      if (!owned) {
         if (!afford) return;
         if (this._roguelite.workshopBuy(item.id)) {
           bus.emit('audio:workshopPurchase');
           this._updateCoins();
-          this._renderContent();
+          this._assignWeapon(weaponId);
         }
-      });
-    }
+        return;
+      }
+      bus.emit('ui:click');
+      this._assignWeapon(weaponId);
+    });
 
     return card;
   }

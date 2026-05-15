@@ -101,10 +101,10 @@ export class LoadoutScreen {
     if (confirmBtn) {
       confirmBtn.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
-        this._saveLoadout();
         this._roguelite.setDrone(this._selectedDrone);
-        // Build weapons array for backward compat
-        const weapons = [this._slot1, this._slot2].filter(Boolean);
+        // Slots are managed by WorkshopScreen — read from roguelite.loadout
+        const lo = this._roguelite.loadout;
+        const weapons = [lo?.slot1, lo?.slot2].filter(Boolean);
         this._roguelite.setLoadout(weapons);
         bus.emit('loadout:confirmed', { drone: this._selectedDrone, secondaries: weapons });
       });
@@ -178,8 +178,7 @@ export class LoadoutScreen {
   _renderContent() {
     if (!this._contentEl) return;
     this._contentEl.innerHTML = '';
-    if (this._tab === 'drone') this._renderDroneTab();
-    else this._renderWeaponsTab();
+    this._renderDroneTab();
   }
 
   // ── Drone tab ───────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 /**
- * Map templates — 8 maps defining the full campaign.
+ * Map templates — 7 maps defining the full campaign.
  * Each template specifies enemy count ranges; MapGenerator randomizes within them.
  *
  * SAM family: flakGun (SAM-Light), samMedium (SAM-Medium), samHeavy (SAM-Heavy)
@@ -54,25 +54,9 @@ export const MAP_TEMPLATES = [
   },
   {
     id: 4,
-    name: 'Ghost Protocol',
-    setting: 'night_forest',
-    difficulty: 4,
-    briefing: ['Keine eigenen Kräfte verfügbar.', 'Budget wurde "umgeleitet".', 'Viel Erfolg — offiziell wissen wir nichts davon.'],
-    enemies: {
-      soldier: [0,0], rocket: [0,0], tank: [0,0],
-      flakGun: [2,3], commander: [2,2], enemyDrone: [2,3],
-      rocketInfantry: [2,3], samMedium: [2,3], samHeavy: [0,1], jammer: [1,2], empMortar: [1,2],
-      titanTank: [0,0],
-    },
-    blueForce: { soldier: [2, 3], tank: [0, 1] },
-    objective: 'destroy_hq',
-    waves: 2,
-  },
-  {
-    id: 5,
     name: 'Drone Swarm',
     setting: 'harbor',
-    difficulty: 5,
+    difficulty: 4,
     briefing: ['Feindliche Drohnen über dem Hafen.', 'Eigene Drohne zur Abwehr.', 'Die Ironie wird nicht kommentiert.'],
     enemies: {
       soldier: [0,0], rocket: [0,0], tank: [0,0],
@@ -85,7 +69,7 @@ export const MAP_TEMPLATES = [
     waves: 3,
   },
   {
-    id: 6,
+    id: 5,
     name: 'Harbor Blockade',
     setting: 'harbor',
     difficulty: 6,
@@ -101,7 +85,7 @@ export const MAP_TEMPLATES = [
     waves: 3,
   },
   {
-    id: 7,
+    id: 6,
     name: 'Sandstorm',
     setting: 'sandstorm',
     difficulty: 7,
@@ -117,7 +101,7 @@ export const MAP_TEMPLATES = [
     waves: 4,
   },
   {
-    id: 8,
+    id: 7,
     name: 'Der Titan',
     setting: 'titan_arena',
     difficulty: 8,

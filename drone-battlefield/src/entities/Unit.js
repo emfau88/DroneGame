@@ -44,19 +44,19 @@ const GEO = {
 // Ground unit stats. aaRange: 0 = cannot shoot drone. aaCooldown in seconds.
 const UNIT_STATS = {
   soldier: {
-    hp: 12, damage: 2.1, speed: 2.05, range: 5.2, cooldown: 0.75,
+    hp: 12, damage: 2.1, speed: 1.75, range: 5.2, cooldown: 0.75,
     aaRange: 8, aaDamage: 1, aaCooldown: 4.0, aaLockTime: 0,
   },
   tank: {
-    hp: 45, damage: 5.2, speed: 1.2, range: 5.2, cooldown: 1.8,
+    hp: 45, damage: 5.2, speed: 1.0, range: 5.2, cooldown: 1.8,
     aaRange: 18, aaDamage: 1, aaCooldown: 2.8, aaLockTime: 0.3,
   },
   rocket: {
-    hp: 18, damage: 4.8, speed: 1.6, range: 7.5, cooldown: 1.25,
+    hp: 18, damage: 4.8, speed: 1.4, range: 7.5, cooldown: 1.25,
     aaRange: 10, aaDamage: 1, aaCooldown: 2.5, aaLockTime: 0.5,
   },
   commander: {
-    hp: 28, damage: 3.0, speed: 1.8, range: 6.0, cooldown: 1.8,
+    hp: 28, damage: 3.0, speed: 1.5, range: 6.0, cooldown: 1.8,
     aaRange: 6, aaDamage: 1, aaCooldown: 5.0, aaLockTime: 0.8,
   },
   flakGun: {  // SAM Light — 1 slow homing missile
@@ -89,7 +89,7 @@ const UNIT_STATS = {
     aaRange: 14, aaDamage: 2, aaCooldown: 4.0, aaLockTime: 1.0,
   },
   enemyDrone: {
-    hp: 20, damage: 0, speed: 14, range: 0, cooldown: 0,
+    hp: 20, damage: 0, speed: 12, range: 0, cooldown: 0,
     aaRange: 16, aaDamage: 1, aaCooldown: 0, aaLockTime: 0,
   },
   // Blue-only types

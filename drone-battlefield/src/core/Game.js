@@ -315,7 +315,7 @@ export class Game {
     try {
       const template = this._getTemplate(mapIndex);
       if (!template) {
-        // All 8 maps cleared!
+        // All 7 maps cleared!
         this._onRunWin();
         return;
       }
