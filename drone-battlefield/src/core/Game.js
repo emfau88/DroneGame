@@ -112,7 +112,7 @@ export class Game {
     this.hud.init(bus);
 
     this.menus = new MenuManager();
-    this.menus.init(this.state);
+    this.menus.init(this.state, this.audio);
 
     this.startFX = new StartScreenFX();
     this.startFX.init();
@@ -354,6 +354,11 @@ export class Game {
       // Init objective
       this._objectiveSystem.init(template.objective, this.renderer.scene);
 
+      // Show HQ arrow on destroy_hq maps
+      if (template.objective === 'destroy_hq') {
+        this.hud.showObjectiveArrow(5);
+      }
+
       // Listen for weapon impacts to damage HQ
       this._onWeaponImpactForObj = (data) => {
         if (data.type === 'bomb' || data.type === 'missile' || data.type === 'cluster') {
@@ -385,7 +390,7 @@ export class Game {
 
       // Camera
       this.renderer.setCameraTarget(this._drone.position);
-      this.renderer.startCinematicIntro?.();
+      this.renderer.startCinematicIntro();
 
       // Ensure PLAYING state
       if (!this.state.is('PLAYING')) {
@@ -554,6 +559,13 @@ export class Game {
 
   _update(dt) {
     const input = this.input.getState();
+
+    // Block firing during cinematic intro
+    if (this.renderer.isIntroPlaying) {
+      input.firePrimary = false;
+      input.fireSecondary = false;
+      input.fireSecondary2 = false;
+    }
 
     // Drone movement + auto-fire
     if (this._drone && this._drone.alive) {

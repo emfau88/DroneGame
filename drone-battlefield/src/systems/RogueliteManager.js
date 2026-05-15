@@ -227,22 +227,37 @@ export class RogueliteManager {
     const owned = new Set(this.currentRun?.activeUpgrades ?? []);
     const categories = ['OFFENSIVE', 'DEFENSIVE', 'UTILITY'];
 
+    // Gate weapon upgrades: only show them if the workshop item is owned
+    const WEAPON_GATE = {
+      devastator:       'unlock_bomb',
+      chain_emp:        'unlock_emp',
+      homing_missiles:  'unlock_missile',
+      cluster_plus:     'unlock_cluster',
+    };
+
+    const available = UPGRADES.filter(u => {
+      const gate = WEAPON_GATE[u.id];
+      if (gate === undefined) return true;
+      return this.workshopUnlocks.includes(gate);
+    });
+
     // Pick one from each category to ensure variety
     const chosen = [];
     const shuffledCategories = this._shuffle([...categories]);
 
     for (const cat of shuffledCategories) {
-      const pool = UPGRADES.filter(u => u.category === cat);
+      const pool = available.filter(u => u.category === cat);
       // Prefer upgrades player doesn't already have
       const unowned = pool.filter(u => !owned.has(u.id));
       const source = unowned.length > 0 ? unowned : pool;
+      if (source.length === 0) continue;
       const pick = source[Math.floor(Math.random() * source.length)];
       if (pick) chosen.push(pick);
     }
 
     // Fill to exactly CHOICES_PER_UPGRADE if needed
     while (chosen.length < CHOICES_PER_UPGRADE) {
-      const remaining = UPGRADES.filter(u => !chosen.includes(u));
+      const remaining = available.filter(u => !chosen.includes(u));
       if (remaining.length === 0) break;
       chosen.push(remaining[Math.floor(Math.random() * remaining.length)]);
     }
@@ -260,6 +275,8 @@ export class RogueliteManager {
     drone.damageMultiplier   = 1.0;
     drone.speedMultiplier    = 1.0;
     drone.cooldownMultiplier = 1.0;
+    drone.primaryCooldownMultiplier   = 1.0;
+    drone.secondaryCooldownMultiplier = 1.0;
     drone._upgrades = {};
 
     // Apply selected drone model base stats

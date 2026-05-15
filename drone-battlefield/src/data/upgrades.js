@@ -19,7 +19,7 @@ export const UPGRADES = [
   { id: 'iron_rain',        name: 'Iron Rain',        category: 'OFFENSIVE', description: 'Cannon damage +25%',
     apply: (drone) => { drone.damageMultiplier *= 1.25; } },
   { id: 'rapid_fire',       name: 'Rapid Fire',       category: 'OFFENSIVE', description: 'Cannon cooldown -20%',
-    apply: (drone) => { drone.cooldownMultiplier *= 0.80; } },
+    apply: (drone) => { drone.primaryCooldownMultiplier = (drone.primaryCooldownMultiplier ?? 1) * 0.80; } },
   { id: 'devastator',       name: 'Devastator',       category: 'OFFENSIVE', description: 'Unlock BOMB secondary. Bomb radius +2, damage +15',
     apply: (drone) => {
       drone._upgrades = drone._upgrades || {};
@@ -97,8 +97,8 @@ export const UPGRADES = [
     apply: (drone) => { drone._upgrades = drone._upgrades || {}; drone._upgrades.intel = true; } },
   { id: 'scavenger',        name: 'Scavenger',        category: 'UTILITY',   description: 'Killing a commander resets 1s off all cooldowns',
     apply: (drone) => { drone._upgrades = drone._upgrades || {}; drone._upgrades.scavenger = true; } },
-  { id: 'overclock',        name: 'Overclock',        category: 'UTILITY',   description: 'All cooldowns -15%',
-    apply: (drone) => { drone.cooldownMultiplier *= 0.85; } },
+  { id: 'overclock',        name: 'Overclock',        category: 'UTILITY',   description: 'Secondary weapon cooldowns -15%',
+    apply: (drone) => { drone.secondaryCooldownMultiplier = (drone.secondaryCooldownMultiplier ?? 1) * 0.85; } },
   { id: 'blitz_mode',       name: 'Blitz Mode',       category: 'UTILITY',   description: 'First 10s of each map: all cooldowns -50%',
     apply: (drone) => { drone._upgrades = drone._upgrades || {}; drone._upgrades.blitzMode = true; } },
   { id: 'supply_drop',      name: 'Supply Drop',      category: 'UTILITY',   description: 'Once per map: hold both fire buttons → restore 1 HP',

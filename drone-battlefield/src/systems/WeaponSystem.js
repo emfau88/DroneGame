@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { bus }               from '../core/EventBus.js';
 import { MissileProjectile } from '../entities/MissileProjectile.js';
+import { BulletPool }        from '../utils/BulletPool.js';
 
 // Weapon base damage and config from DRONE_STRIKE_REBUILD.md
 const WEAPON_DEFS = {
@@ -59,6 +60,7 @@ export class WeaponSystem {
   init(bus_, scene) {
     this._bus   = bus_;
     this._scene = scene;
+    this._bulletPool = new BulletPool(scene, 24);
 
     this._onDroneFire = (data) => this._handleDroneFire(data);
     bus_.on('weapon:dronefire', this._onDroneFire);
@@ -73,8 +75,9 @@ export class WeaponSystem {
   clearPending() {
     this._pendingCluster  = [];
     this._pendingChainEMP = [];
+    this._bulletPool?.clearAll();
     for (const m of this._missiles) {
-      if (m.type === 'bullet' || m.type === 'falling_bomb') {
+      if (m.type === 'falling_bomb') {
         if (this._scene) this._scene.remove(m.mesh);
         m.geo.dispose(); m.mat.dispose();
       } else if (m.type === 'missile') {
@@ -116,42 +119,23 @@ export class WeaponSystem {
     const armorBonus = (upg.armorPiercer && target.type === 'tank') ? 1.3 : 1;
     const dmg = def.damage * dm * armorBonus;
 
-    // Spawn a visible bullet from drone toward target
-    if (this._scene) {
+    // Spawn a visible bullet from drone toward target via pool
+    if (this._scene && this._bulletPool) {
       const from = dronePos.clone(); from.y -= 0.5;
       const to   = target.position.clone(); to.y += 0.5;
       const dir  = new THREE.Vector3().subVectors(to, from).normalize();
       const dist = from.distanceTo(to);
       const speed = 28;
 
-      // Bright yellow-white tracer round — clearly player-owned, readable at speed
-      const geo  = new THREE.SphereGeometry(0.14, 5, 4);
-      const mat  = new THREE.MeshBasicMaterial({ color: 0xFFFF99 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(from);
-      this._scene.add(mesh);
-
-      this._missiles.push({
-        type: 'bullet',
-        mesh,
-        geo,
-        mat,
-        dir,
-        dist,
-        traveled: 0,
-        speed,
-        onArrive: () => {
-          if (target.alive && target.state !== 'dead') {
-            target.takeDamage(dmg);
-            bus.emit('weapon:impact', {
-              type: 'cannon',
-              position: target.position.clone(),
-              affectedUnits: [{ unit: target, damage: dmg }],
-            });
-          }
-          this._scene.remove(mesh);
-          geo.dispose(); mat.dispose();
-        },
+      this._bulletPool.fire(from, dir, dist, speed, () => {
+        if (target.alive && target.state !== 'dead') {
+          target.takeDamage(dmg);
+          bus.emit('weapon:impact', {
+            type: 'cannon',
+            position: target.position.clone(),
+            affectedUnits: [{ unit: target, damage: dmg }],
+          });
+        }
       });
     } else {
       target.takeDamage(dmg);
@@ -289,20 +273,14 @@ export class WeaponSystem {
   }
 
   update(dt) {
-    // Flying projectiles (cannon bullets + missiles)
+    // Bullet pool update
+    this._bulletPool?.update(dt);
+
+    // Flying projectiles (missiles + falling bombs)
     if (this._missiles.length > 0) {
       const remaining = [];
       for (const m of this._missiles) {
-        if (m.type === 'bullet') {
-          const step = m.speed * dt;
-          m.traveled += step;
-          m.mesh.position.addScaledVector(m.dir, step);
-          if (m.traveled >= m.dist) {
-            m.onArrive();
-          } else {
-            remaining.push(m);
-          }
-        } else if (m.type === 'falling_bomb') {
+        if (m.type === 'falling_bomb') {
           m.mesh.position.y -= m.speed * dt;
           if (m.mesh.position.y <= 0.3 && !m.exploded) {
             m.exploded = true;
@@ -374,5 +352,6 @@ export class WeaponSystem {
     if (this._bus) {
       this._bus.off('weapon:dronefire', this._onDroneFire);
     }
+    this._bulletPool?.destroy();
   }
 }

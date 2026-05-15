@@ -204,7 +204,9 @@ export class BattleSystem {
     unit.setAAGlow?.(true);
 
     // Lock-on phase: accumulate timer and show targeting laser in final 0.5s
-    const lockDelay = (unit._upgrades?.ghostProtocol ?? false) ? unit.aaLockTime + 1.5 : unit.aaLockTime;
+    const ghostDelay = (unit._upgrades?.ghostProtocol ?? false) ? 1.5 : 0;
+    const intelReduction = (drone?._upgrades?.intel) ? 0.30 : 0;
+    const lockDelay = (unit.aaLockTime + ghostDelay) * (1 - intelReduction);
     unit._aaLockTimer += dt;
 
     const LASER_WARN_TIME = 0.5;
@@ -349,6 +351,7 @@ export class BattleSystem {
               ? drone._empWeaponFreezeTimer + 1  // extend if already frozen
               : 2.0;
             bus.emit('drone:empFreeze', { duration: 2.0 });
+            bus.emit('drone:weaponsFrozen', { duration: drone._empWeaponFreezeTimer });
           } else if (flak._opts?.isTitanShell) {
             // Titan shell: 2 damage hits
             bus.emit('battle:droneHit', { sourcePosition: flak.position.clone() });

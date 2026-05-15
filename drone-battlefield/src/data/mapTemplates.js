@@ -61,10 +61,10 @@ export const MAP_TEMPLATES = [
     enemies: {
       soldier: [0,0], rocket: [0,0], tank: [0,0],
       flakGun: [2,3], commander: [2,2], enemyDrone: [2,3],
-      rocketInfantry: [2,3], samMedium: [2,3], samHeavy: [0,1], jammer: [3,4], empMortar: [2,3],
+      rocketInfantry: [2,3], samMedium: [2,3], samHeavy: [0,1], jammer: [1,2], empMortar: [1,2],
       titanTank: [0,0],
     },
-    noBlueForce: true,
+    blueForce: { soldier: [2, 3], tank: [0, 1] },
     objective: 'destroy_hq',
     waves: 2,
   },

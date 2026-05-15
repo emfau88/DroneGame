@@ -503,6 +503,25 @@ export class AudioSystem {
     }
   }
 
+  /** UI Confirm: two ascending notes for upgrade selection. */
+  playUIConfirm() {
+    if (!this._initialized) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    [523, 659].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = now + i * 0.1;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      osc.start(t); osc.stop(t + 0.13);
+    });
+  }
+
   /** Wind: low-amplitude brown noise loop, barely perceptible. */
   startWind() {
     if (!this._initialized || this._windNode) return;

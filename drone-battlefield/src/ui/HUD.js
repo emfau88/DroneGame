@@ -108,6 +108,15 @@ export class HUD {
     this._commentTimer            = 0;
     this._titanCommentedThisMap   = false;
     this._onTitanHit              = null;
+
+    // EMP jammed bar
+    this._jammedDuration  = 0;
+    this._jammedTimer     = 0;
+    this._onWeaponsFrozen = null;
+    this._onWeaponsRestored = null;
+
+    // HQ arrow
+    this._hqArrowTimer = 0;
   }
 
   init(bus_) {
@@ -194,6 +203,36 @@ export class HUD {
       }
     };
 
+    this._onWeaponsFrozen = ({ duration }) => {
+      this._jammedDuration = duration;
+      this._jammedTimer = duration;
+      const ind = document.getElementById('jammed-indicator');
+      const barWrap = document.getElementById('jammed-bar-wrap');
+      const cluster = document.getElementById('fire-cluster');
+      if (ind) ind.style.display = 'block';
+      if (barWrap) barWrap.style.display = 'block';
+      if (cluster) cluster.style.setProperty('opacity', '0.45');
+    };
+
+    this._onWeaponsRestored = () => {
+      this._jammedTimer = 0;
+      const ind = document.getElementById('jammed-indicator');
+      const barWrap = document.getElementById('jammed-bar-wrap');
+      const cluster = document.getElementById('fire-cluster');
+      if (barWrap) barWrap.style.display = 'none';
+      if (cluster) cluster.style.setProperty('opacity', '1');
+      if (ind) {
+        ind.textContent = 'WEAPONS ONLINE';
+        ind.style.background = 'rgba(0,180,80,0.85)';
+        ind.style.display = 'block';
+        setTimeout(() => {
+          ind.style.display = 'none';
+          ind.textContent = 'JAMMED';
+          ind.style.background = 'rgba(220,0,0,0.85)';
+        }, 900);
+      }
+    };
+
     bus_.on('drone:hit',           this._onDroneHit);
     bus_.on('drone:dead',          this._onDroneDead);
     bus_.on('battle:droneHit',     this._onBattleDroneHit);
@@ -202,6 +241,8 @@ export class HUD {
     bus_.on('drone:jammed',        this._onDroneJammed);
     bus_.on('drone:empFreeze',     this._onEmpFreeze);
     bus_.on('battle:titanHit',     this._onTitanHit);
+    bus_.on('drone:weaponsFrozen',   this._onWeaponsFrozen);
+    bus_.on('drone:weaponsRestored', this._onWeaponsRestored);
   }
 
   // ── HP ────────────────────────────────────────────────────────────────────
@@ -437,6 +478,13 @@ export class HUD {
     this._dronePosition = pos;
   }
 
+  showObjectiveArrow(duration = 5) {
+    const el = document.getElementById('hq-arrow');
+    if (!el) return;
+    el.style.display = 'flex';
+    this._hqArrowTimer = duration;
+  }
+
   // ── Update ────────────────────────────────────────────────────────────────
 
   update(dt) {
@@ -512,6 +560,23 @@ export class HUD {
       }
     }
 
+    // Jammed bar shrink
+    if (this._jammedTimer > 0) {
+      this._jammedTimer = Math.max(0, this._jammedTimer - dt);
+      const pct = (this._jammedTimer / this._jammedDuration) * 100;
+      const bar = document.getElementById('jammed-bar');
+      if (bar) bar.style.width = pct + '%';
+    }
+
+    // HQ arrow countdown
+    if (this._hqArrowTimer > 0) {
+      this._hqArrowTimer -= dt;
+      if (this._hqArrowTimer <= 0) {
+        const el = document.getElementById('hq-arrow');
+        if (el) el.style.display = 'none';
+      }
+    }
+
     // Tutorial tooltip
     if (this._tooltipActive && this._tooltipEl) {
       this._tooltipTimer += dt;
@@ -544,8 +609,10 @@ export class HUD {
       this._bus.off('unit:fire',           this._onUnitFired);
       this._bus.off('enemyDrone:approach', this._onDroneApproach);
       this._bus.off('drone:jammed',        this._onDroneJammed);
-      this._bus.off('drone:empFreeze',     this._onEmpFreeze);
-      this._bus.off('battle:titanHit',     this._onTitanHit);
+      this._bus.off('drone:empFreeze',       this._onEmpFreeze);
+      this._bus.off('battle:titanHit',       this._onTitanHit);
+      this._bus.off('drone:weaponsFrozen',   this._onWeaponsFrozen);
+      this._bus.off('drone:weaponsRestored', this._onWeaponsRestored);
     }
   }
 

@@ -205,8 +205,12 @@
     .upgrade-card {
       width: 220px; padding: 20px 16px 16px; border-radius: 8px;
       background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.2);
-      cursor: pointer; transition: background .15s, border-color .15s;
+      cursor: pointer; transition: transform 0.12s ease, background 0.12s, border-color .15s;
       touch-action: none; text-align: center; position: relative;
+    }
+    .upgrade-card.selected-flash {
+      transform: scale(1.08);
+      background: rgba(255,255,255,0.35) !important;
     }
     .upgrade-card:hover, .upgrade-card:active {
       background: rgba(41,123,255,.25); border-color: #297BFF;
@@ -463,6 +467,7 @@
     /* Fire buttons cluster — bottom right */
     #fire-cluster {
       display: flex; flex-direction: column; align-items: center; gap: 10px;
+      position: relative;
     }
 
     @keyframes ready-flash {
@@ -725,6 +730,9 @@
         <div class="meta-name" id="meta-unlock-name">—</div>
         <div class="meta-desc" id="meta-unlock-desc"></div>
       </div>
+      <p id="meta-hint" style="display:none;font-size:0.8rem;color:rgba(255,220,100,0.85);max-width:320px;text-align:center;margin-top:4px;">
+        Coins bleiben erhalten — gib sie im Workshop aus vor dem nächsten Run.
+      </p>
       <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
         <button id="btn-run-over-workshop" class="btn" data-i18n="runover.workshop">Workshop</button>
         <button id="btn-run-over-new" class="btn primary" data-i18n="start.newRun">New Run</button>
@@ -797,6 +805,8 @@
       <div class="hit-arrow" id="hit-arrow-right"></div>
       <!-- Enemy drone approach warning -->
       <div id="drone-warning">⚠ ENEMY DRONE</div>
+      <!-- HQ objective arrow -->
+      <div id="hq-arrow" style="display:none;position:fixed;right:12px;top:50%;transform:translateY(-50%);background:rgba(255,30,30,0.75);color:#fff;font-size:0.75rem;font-weight:700;letter-spacing:.08em;padding:6px 10px;border-radius:6px;pointer-events:none;">HQ ▶</div>
 
       <div id="hud-bottom">
         <div id="joystick">
@@ -805,6 +815,10 @@
 
         <!-- Fire buttons -->
         <div id="fire-cluster">
+          <div id="jammed-indicator" style="display:none;position:absolute;top:-28px;left:50%;transform:translateX(-50%);background:rgba(220,0,0,0.85);color:#fff;font-size:0.65rem;font-weight:700;letter-spacing:.1em;padding:3px 10px;border-radius:4px;pointer-events:none;white-space:nowrap;">JAMMED</div>
+          <div id="jammed-bar-wrap" style="display:none;position:absolute;top:-8px;left:0;right:0;height:4px;background:rgba(255,255,255,.15);border-radius:2px;overflow:hidden;">
+            <div id="jammed-bar" style="height:100%;background:#FF3333;width:100%;transition:none;"></div>
+          </div>
           <!-- Secondary slot 2 (hidden until unlocked) -->
           <button id="fire-secondary2-btn" class="weapon-btn" style="
             width:56px;height:56px;border-radius:50%;

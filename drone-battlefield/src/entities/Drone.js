@@ -37,6 +37,7 @@ const _rotorMat   = new THREE.MeshStandardMaterial({ color: 0x444460, roughness:
 const _cameraMatD = new THREE.MeshStandardMaterial({ color: 0x181820, roughness: 0.1,  metalness: 0.9 });
 const _ledBlueMat = new THREE.MeshBasicMaterial({ color: 0x44AAFF });
 const _ledRedMat  = new THREE.MeshBasicMaterial({ color: 0xFF3322 });
+const _flashGeo   = new THREE.SphereGeometry(0.22, 6, 4);
 
 // Weapon configuration objects — stats from DRONE_STRIKE_REBUILD.md
 const WEAPON_CONFIGS = {
@@ -112,10 +113,16 @@ export class Drone extends Entity {
     this.damageMultiplier = 1.0;
     this.speedMultiplier  = 1.0;
     this.cooldownMultiplier = 1.0;
+    this.primaryCooldownMultiplier   = 1.0; // affects cannon only
+    this.secondaryCooldownMultiplier = 1.0; // affects secondaries only
 
     // Drone model (set by RogueliteManager)
     this.dualCannon   = false;  // Reaper: fires 2 cannon shots simultaneously
     this.droneModelId = 'wasp';
+
+    // Muzzle flash
+    this._flashMesh = null;
+    this._muzzleFlashTimer = 0;
 
     // Enemy disruption effects
     this._jammerActive = false;        // set by BattleSystem jammer units
@@ -232,6 +239,13 @@ export class Drone extends Entity {
     this._groundMarker = new THREE.Mesh(_groundMarkerGeo, _groundMarkerMat);
     this._groundMarker.rotation.x = -Math.PI / 2;
     this.scene.add(this._groundMarker);
+
+    // Muzzle flash mesh
+    const flashMat = new THREE.MeshBasicMaterial({ color: 0xFFEE88, transparent: true, opacity: 0 });
+    this._flashMesh = new THREE.Mesh(_flashGeo, flashMat);
+    this._flashMesh.position.y = -0.5;
+    this._flashMesh.visible = false;
+    this.group.add(this._flashMesh);
   }
 
   /**
@@ -250,6 +264,14 @@ export class Drone extends Entity {
     this._updateShield(dt);
     this._updateUpgradeTimers(dt, input);
     this._updateWeapons(dt, input, units);
+
+    // Muzzle flash fade
+    if (this._muzzleFlashTimer > 0) {
+      this._muzzleFlashTimer -= dt;
+      const t = this._muzzleFlashTimer / 0.07;
+      this._flashMesh.material.opacity = Math.max(0, t);
+      if (this._muzzleFlashTimer <= 0) this._flashMesh.visible = false;
+    }
 
     // Spin rotors
     for (const rotor of this._rotors) {
@@ -382,7 +404,11 @@ export class Drone extends Entity {
 
     // EMP freeze: weapons locked down
     if (this._empWeaponFreezeTimer > 0) {
+      const wasAboveZero = this._empWeaponFreezeTimer > 0;
       this._empWeaponFreezeTimer = Math.max(0, this._empWeaponFreezeTimer - dt);
+      if (wasAboveZero && this._empWeaponFreezeTimer <= 0) {
+        bus.emit('drone:weaponsRestored', {});
+      }
       return;
     }
 
@@ -403,6 +429,13 @@ export class Drone extends Entity {
     }
   }
 
+  _triggerMuzzleFlash() {
+    if (!this._flashMesh) return;
+    this._flashMesh.visible = true;
+    this._flashMesh.material.opacity = 1.0;
+    this._muzzleFlashTimer = 0.07;
+  }
+
   _fireWeapon(weapon, units, slot) {
     const target = this._findTarget(weapon, units);
 
@@ -410,7 +443,10 @@ export class Drone extends Entity {
     const isBelowDrop = weapon.type === 'bomb' || weapon.type === 'cluster';
     if (!isBelowDrop && !target && weapon.type !== 'emp') return;
 
-    const cooldown = weapon.cooldownDuration * this._effectiveCooldownMultiplier();
+    const isPrimary = slot === 'primary' || slot === 'primary_dual';
+    const cooldown = weapon.cooldownDuration
+      * this._effectiveCooldownMultiplier()
+      * (isPrimary ? this.primaryCooldownMultiplier : this.secondaryCooldownMultiplier);
     if (slot === 'primary') {
       this.primaryCooldown = cooldown;
     } else if (slot === 'primary_dual') {
@@ -434,6 +470,8 @@ export class Drone extends Entity {
       this._overchargeTimer = 20; // restart countdown
       bus.emit('drone:overchargeUsed', {});
     }
+
+    if (weapon.type === 'cannon') this._triggerMuzzleFlash();
 
     const firePos = this.position.clone();
     if (slot === 'primary_dual') firePos.x += 0.6; // offset second barrel slightly

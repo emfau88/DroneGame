@@ -35,6 +35,9 @@ export class ObjectiveSystem {
     this._hqMesh   = null;
     this._hqHp     = HQ_HP;
     this._hqBeacon = null;
+    this._hqRing   = null;
+    this._hqRingMat = null;
+    this._hqRingTime = 0;
 
     // Hold zone
     this._zoneMesh       = null;
@@ -82,6 +85,20 @@ export class ObjectiveSystem {
     this._hqBeacon = new THREE.Mesh(_beaconGeo, beaconMat);
     this._hqBeacon.position.set(38, 5.5, 0);
     this._scene.add(this._hqBeacon);
+
+    // Pulsing ground ring around HQ
+    const hqRingGeo = new THREE.RingGeometry(3.2, 4.0, 32);
+    const hqRingMat = new THREE.MeshBasicMaterial({
+      color: 0xFF2222, transparent: true, opacity: 0.4,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    const hqRing = new THREE.Mesh(hqRingGeo, hqRingMat);
+    hqRing.rotation.x = -Math.PI / 2;
+    hqRing.position.set(38, 0.08, 0);
+    this._scene.add(hqRing);
+    this._hqRing = hqRing;
+    this._hqRingMat = hqRingMat;
+    this._hqRingTime = 0;
   }
 
   _initHoldZone() {
@@ -126,6 +143,12 @@ export class ObjectiveSystem {
     // Pulse beacon
     if (this._hqBeacon) {
       this._hqBeacon.material.opacity = 0.5 + Math.sin(Date.now() * 0.004) * 0.5;
+    }
+
+    // Pulse HQ ring
+    if (this._hqRing) {
+      this._hqRingTime += dt;
+      this._hqRingMat.opacity = 0.25 + Math.sin(this._hqRingTime * 3.0) * 0.18;
     }
 
     return { statusText: this._getStatusText(), complete: this._complete, failed: this._failed };
@@ -275,6 +298,7 @@ export class ObjectiveSystem {
   destroy() {
     if (this._hqMesh)     { this._scene?.remove(this._hqMesh);     this._hqMesh     = null; }
     if (this._hqBeacon)   { this._scene?.remove(this._hqBeacon);   this._hqBeacon   = null; }
+    if (this._hqRing)     { this._scene?.remove(this._hqRing);     this._hqRing     = null; }
     if (this._zoneMesh)   { this._scene?.remove(this._zoneMesh);   this._zoneMesh   = null; }
     if (this._convoyMesh) { this._scene?.remove(this._convoyMesh); this._convoyMesh = null; }
   }

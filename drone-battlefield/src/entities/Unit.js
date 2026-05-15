@@ -233,6 +233,20 @@ export class Unit extends Entity {
           stripe.position.set(ox, 1.08, 0);
           this.group.add(stripe); this._meshes.push(stripe);
         }
+
+        // Aura ring — visible buff radius indicator
+        const auraGeo = new THREE.RingGeometry(3.8, 4.2, 32);
+        const auraMat = new THREE.MeshBasicMaterial({
+          color: 0xFFCC44, transparent: true, opacity: 0.18,
+          side: THREE.DoubleSide, depthWrite: false,
+        });
+        const aura = new THREE.Mesh(auraGeo, auraMat);
+        aura.rotation.x = -Math.PI / 2;
+        aura.position.y = 0.06;
+        this.group.add(aura);
+        this._auraRing = aura;
+        this._auraRingMat = auraMat;
+        this._auraTime = 0;
         break;
       }
       case 'flakGun': {
@@ -621,6 +635,12 @@ export class Unit extends Entity {
       this._jammerRingMat.opacity = 0.3 + 0.4 * Math.abs(Math.sin(this._jammerPulse));
       const s = 1.0 + 0.25 * Math.abs(Math.sin(this._jammerPulse * 0.5));
       this._jammerRing.scale.setScalar(s);
+    }
+
+    // Commander aura ring animation
+    if (this._auraRing && this.state !== 'dead') {
+      this._auraTime = (this._auraTime || 0) + dt;
+      this._auraRingMat.opacity = 0.13 + Math.sin(this._auraTime * 2.2) * 0.07;
     }
   }
 

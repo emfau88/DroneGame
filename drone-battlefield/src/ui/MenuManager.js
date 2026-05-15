@@ -44,8 +44,9 @@ export class MenuManager {
     this._currentMapLabel = null;
   }
 
-  init(state) {
+  init(state, audio) {
     this._state = state;
+    this._audio = audio || null;
 
     this._startScreenEl   = document.getElementById('screen-start');
     this._upgradeScreenEl = document.getElementById('screen-upgrade');
@@ -202,7 +203,12 @@ export class MenuManager {
 
     div.addEventListener('pointerdown', () => {
       bus.emit('ui:click');
-      bus.emit('upgrade:cardSelected', { upgradeId: upgrade.id });
+      div.classList.add('selected-flash');
+      this._audio?.playUIConfirm();
+      setTimeout(() => {
+        div.classList.remove('selected-flash');
+        bus.emit('upgrade:cardSelected', { upgradeId: upgrade.id });
+      }, 280);
     });
 
     return div;
@@ -261,6 +267,14 @@ export class MenuManager {
     }
 
     if (this._runOverScreenEl) this._runOverScreenEl.style.display = 'flex';
+
+    // Show meta hint only on first run over
+    const explained = localStorage.getItem('drone_strike_meta_explained');
+    if (!explained) {
+      localStorage.setItem('drone_strike_meta_explained', '1');
+      const hint = document.getElementById('meta-hint');
+      if (hint) hint.style.display = 'block';
+    }
   }
 
   showRunWin(stats, metaUpgrade) {
