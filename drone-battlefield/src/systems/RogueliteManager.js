@@ -75,8 +75,8 @@ export class RogueliteManager {
     /** Workshop: permanently unlocked weapon/bonus IDs. */
     this.workshopUnlocks = [];
 
-    /** Loadout: chosen secondary weapon IDs for next run (max 2). */
-    this.loadout = [];
+    /** Loadout: chosen secondary weapon IDs for next run (slot1/slot2 format). */
+    this.loadout = { droneType: 'wasp', slot1: null, slot2: null };
 
     /** Selected drone model id for next run. */
     this.selectedDrone = 'wasp';
@@ -90,6 +90,7 @@ export class RogueliteManager {
     this.loadCoins();
     this.loadWorkshop();
     this.loadDroneSelection();
+    this._loadLoadout();
   }
 
   /** Award coins for a kill. Returns coins earned (includes coin_boost multiplier). */
@@ -128,7 +129,12 @@ export class RogueliteManager {
   }
 
   setLoadout(secondaries) {
-    this.loadout = secondaries.slice(0, 2);
+    this.loadout = {
+      droneType: this.selectedDrone,
+      slot1: secondaries[0] || null,
+      slot2: secondaries[1] || null,
+    };
+    this._saveLoadout();
   }
 
   setDrone(droneId) {
@@ -310,8 +316,10 @@ export class RogueliteManager {
     }
 
     // Apply loadout weapons
-    if (this.loadout[0]) drone.setSecondaryWeapon(this.loadout[0], 1);
-    if (this.loadout[1]) drone.setSecondaryWeapon(this.loadout[1], 2);
+    const slot1 = Array.isArray(this.loadout) ? this.loadout[0] : this.loadout?.slot1;
+    const slot2 = Array.isArray(this.loadout) ? this.loadout[1] : this.loadout?.slot2;
+    if (slot1) drone.setSecondaryWeapon(slot1, 1);
+    if (slot2) drone.setSecondaryWeapon(slot2, 2);
 
     // Quick Repair: restore 1 HP if below max
     if (drone._upgrades?.quickRepair && drone.hp < drone.maxHp) {
@@ -385,6 +393,23 @@ export class RogueliteManager {
   loadDroneSelection() {
     try { this.selectedDrone = localStorage.getItem(DRONE_KEY) || 'wasp'; } catch (_) {}
     if (!DRONE_MODEL_MAP[this.selectedDrone]) this.selectedDrone = 'wasp';
+  }
+
+  _saveLoadout() {
+    try { localStorage.setItem('drone_strike_loadout', JSON.stringify(this.loadout)); } catch (_) {}
+  }
+  _loadLoadout() {
+    try {
+      const raw = localStorage.getItem('drone_strike_loadout');
+      if (raw) {
+        const data = JSON.parse(raw);
+        this.loadout = { droneType: data.droneType || 'wasp', slot1: data.slot1 || null, slot2: data.slot2 || null };
+        // Also restore selectedDrone from loadout
+        if (DRONE_MODEL_MAP[this.loadout.droneType]) {
+          this.selectedDrone = this.loadout.droneType;
+        }
+      }
+    } catch (_) {}
   }
 
   _shuffle(arr) {

@@ -1,293 +1,382 @@
-import { bus }             from '../core/EventBus.js';
-import { t }               from '../core/i18n.js';
-import { DroneShowcase }   from './DroneShowcase.js';
-import { DRONE_MODELS }    from '../systems/RogueliteManager.js';
+import { bus }  from '../core/EventBus.js';
+import { t }    from '../core/i18n.js';
+import { DRONE_MODELS } from '../systems/RogueliteManager.js';
 
-const WEAPON_ICONS = { missile: '🚀', bomb: '💣', emp: '⚡', cluster: '💥' };
-const WEAPON_IDS   = ['missile', 'bomb', 'emp', 'cluster'];
+const WEAPON_IDS = ['missile', 'bomb', 'emp', 'cluster'];
 
-const DRONE_ICONS = { wasp: '🔵', hornet: '🟠', reaper: '🟣' };
+const WEAPON_NAMES = {
+  missile: 'Missile',
+  bomb:    'Bomb Bay',
+  emp:     'EMP',
+  cluster: 'Cluster',
+};
 
-/**
- * LoadoutScreen — two tabs: Drone selection + Weapon selection.
- * Emits: loadout:confirmed
- */
+const DRONE_SVG = {
+  wasp: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="18" y1="4"  x2="4"  y2="18" stroke="#4A9FFF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="4"  x2="32" y2="18" stroke="#4A9FFF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="32" x2="4"  y2="18" stroke="#4A9FFF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="32" x2="32" y2="18" stroke="#4A9FFF" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="4"  cy="18" r="3" fill="#4A9FFF"/>
+    <circle cx="32" cy="18" r="3" fill="#4A9FFF"/>
+    <circle cx="18" cy="4"  r="3" fill="#4A9FFF"/>
+    <circle cx="18" cy="32" r="3" fill="#4A9FFF"/>
+    <circle cx="18" cy="18" r="4" fill="#99CCFF"/>
+  </svg>`,
+  hornet: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="18" y1="3"  x2="3"  y2="18" stroke="#FF8800" stroke-width="3" stroke-linecap="round"/>
+    <line x1="18" y1="3"  x2="33" y2="18" stroke="#FF8800" stroke-width="3" stroke-linecap="round"/>
+    <line x1="18" y1="33" x2="3"  y2="18" stroke="#FF8800" stroke-width="3" stroke-linecap="round"/>
+    <line x1="18" y1="33" x2="33" y2="18" stroke="#FF8800" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="3"  cy="18" r="4" fill="#FF8800"/>
+    <circle cx="33" cy="18" r="4" fill="#FF8800"/>
+    <circle cx="18" cy="3"  r="4" fill="#FF8800"/>
+    <circle cx="18" cy="33" r="4" fill="#FF8800"/>
+    <circle cx="18" cy="18" r="5" fill="#FFCC66"/>
+  </svg>`,
+  reaper: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="18" y1="3"  x2="3"  y2="18" stroke="#AA44FF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="3"  x2="33" y2="18" stroke="#AA44FF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="33" x2="3"  y2="18" stroke="#AA44FF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="18" y1="33" x2="33" y2="18" stroke="#AA44FF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="5"  y1="5"  x2="31" y2="31" stroke="#AA44FF" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="31" y1="5"  x2="5"  y2="31" stroke="#AA44FF" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="18" cy="18" r="4" fill="#CC88FF"/>
+  </svg>`,
+};
+
+const WEAPON_SVG = {
+  bomb: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="18" cy="22" r="10" fill="#444"/>
+    <polygon points="12,30 24,30 18,36" fill="#333"/>
+    <rect x="16" y="6" width="4" height="8" rx="2" fill="#555"/>
+    <circle cx="18" cy="6" r="2.5" fill="#FF8800"/>
+  </svg>`,
+  missile: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="4" y="15" width="22" height="6" rx="2.5" fill="#CC6600"/>
+    <polygon points="26,15 26,21 34,18" fill="#FF4400"/>
+    <polygon points="4,15 4,21 0,24" fill="#884400"/>
+    <polygon points="4,15 4,21 0,12" fill="#884400"/>
+    <ellipse cx="5" cy="18" rx="2.5" ry="2" fill="#FF6600"/>
+  </svg>`,
+  emp: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="18" cy="18" r="13" stroke="#00CCFF" stroke-width="2" fill="none"/>
+    <circle cx="18" cy="18" r="7"  stroke="#44DDFF" stroke-width="1.5" fill="none"/>
+    <circle cx="18" cy="18" r="3"  fill="#AAFFFF"/>
+    <polygon points="19,5 15,16 18,16 13,31 22,16 18,16" fill="#00FFFF"/>
+  </svg>`,
+  cluster: `<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="18" cy="18" r="7" fill="#4A6A3A"/>
+    <circle cx="18" cy="5"  r="4" fill="#FF5500"/>
+    <circle cx="18" cy="31" r="4" fill="#FF5500"/>
+    <circle cx="5"  cy="18" r="4" fill="#FF5500"/>
+    <circle cx="31" cy="18" r="4" fill="#FF5500"/>
+    <circle cx="8"  cy="8"  r="3" fill="#FF5500"/>
+    <circle cx="28" cy="28" r="3" fill="#FF5500"/>
+  </svg>`,
+};
+
+const LOADOUT_STORAGE_KEY = 'drone_strike_loadout';
+
 export class LoadoutScreen {
   constructor() {
-    this._el        = null;
-    this._roguelite = null;
-    this._showcase  = new DroneShowcase();
+    this._el         = null;
+    this._roguelite  = null;
+    this._contentEl  = null;
+    this._tabBar     = null;
 
-    this._tab          = 'drone'; // 'drone' | 'weapons'
-    this._selectedDrone   = 'wasp';
-    this._selectedWeapons = [];
-
-    // DOM refs built dynamically
-    this._tabDroneBtn   = null;
-    this._tabWeaponsBtn = null;
-    this._contentEl     = null;
-    this._confirmEl     = null;
+    this._tab            = 'drone';
+    this._selectedDrone  = 'wasp';
+    this._slot1          = null;   // weapon type string or null
+    this._slot2          = null;
+    this._activeSlot     = 1;      // which slot is highlighted for assignment
   }
 
   init(roguelite) {
     this._roguelite = roguelite;
     this._el        = document.getElementById('screen-loadout');
-    this._confirmEl = document.getElementById('btn-loadout-confirm');
-    this._showcase.init('lo-showcase-canvas', 'lo-showcase-labels');
+    this._contentEl = document.getElementById('lo-tab-content');
+    this._tabBar    = document.getElementById('lo-tab-bar');
 
-    if (this._confirmEl) {
-      this._confirmEl.addEventListener('pointerdown', () => {
+    const confirmBtn = document.getElementById('btn-loadout-confirm');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
+        this._saveLoadout();
         this._roguelite.setDrone(this._selectedDrone);
-        this._roguelite.setLoadout(this._selectedWeapons);
-        bus.emit('loadout:confirmed', { drone: this._selectedDrone, secondaries: [...this._selectedWeapons] });
+        // Build weapons array for backward compat
+        const weapons = [this._slot1, this._slot2].filter(Boolean);
+        this._roguelite.setLoadout(weapons);
+        bus.emit('loadout:confirmed', { drone: this._selectedDrone, secondaries: weapons });
+      });
+    }
+
+    if (this._tabBar) {
+      this._tabBar.addEventListener('pointerdown', (e) => {
+        const btn = e.target.closest('.shop-tab');
+        if (!btn) return;
+        bus.emit('ui:click');
+        this._tab = btn.dataset.tab;
+        this._updateTabBar();
+        this._renderContent();
       });
     }
   }
 
   show() {
-    this._selectedDrone   = this._roguelite?.selectedDrone ?? 'wasp';
-    this._selectedWeapons = [...(this._roguelite?.loadout ?? [])];
+    this._selectedDrone = this._roguelite?.selectedDrone ?? 'wasp';
+    this._loadLoadout();
     this._tab = 'drone';
-    this._buildTabs();
-    this._renderTab();
+    this._updateTabBar();
+    this._renderContent();
     if (this._el) this._el.style.display = 'flex';
-    this._showcase.setDroneModel(this._selectedDrone);
-    this._showcase.setWeapons(null, null);
-    this._showcase.start();
   }
 
   hide() {
     if (this._el) this._el.style.display = 'none';
-    this._showcase.stop();
   }
 
-  // ── Tab chrome ─────────────────────────────────────────────────────────────
-
-  _buildTabs() {
-    // Find or create the right-side content wrapper
-    let rightPanel = document.getElementById('lo-right-panel');
-    if (!rightPanel) return;
-
-    rightPanel.innerHTML = '';
-
-    // Tab buttons row
-    const tabRow = document.createElement('div');
-    tabRow.style.cssText = 'display:flex;gap:0;width:100%;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:10px;';
-
-    this._tabDroneBtn   = this._makeTabBtn(t('loadout.tabDrone')   || 'Drone',   'drone');
-    this._tabWeaponsBtn = this._makeTabBtn(t('loadout.tabWeapons') || 'Weapons', 'weapons');
-    tabRow.appendChild(this._tabDroneBtn);
-    tabRow.appendChild(this._tabWeaponsBtn);
-    rightPanel.appendChild(tabRow);
-
-    // Content area
-    this._contentEl = document.createElement('div');
-    this._contentEl.style.cssText = 'flex:1;overflow-y:auto;width:100%;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;';
-    rightPanel.appendChild(this._contentEl);
-
-    this._updateTabStyle();
+  _loadLoadout() {
+    try {
+      const raw = localStorage.getItem(LOADOUT_STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        this._slot1 = data.slot1 || null;
+        this._slot2 = data.slot2 || null;
+      } else {
+        // Fall back to roguelite.loadout array (legacy)
+        const arr = this._roguelite?.loadout ?? [];
+        this._slot1 = arr[0] || null;
+        this._slot2 = arr[1] || null;
+      }
+    } catch (_) {
+      this._slot1 = null;
+      this._slot2 = null;
+    }
+    // Validate: clear slots for weapons no longer owned
+    if (this._slot1 && !this._roguelite.isWorkshopUnlocked('unlock_' + this._slot1)) this._slot1 = null;
+    if (this._slot2 && !this._roguelite.isWorkshopUnlocked('unlock_' + this._slot2)) this._slot2 = null;
   }
 
-  _makeTabBtn(label, tabId) {
-    const btn = document.createElement('button');
-    btn.style.cssText = `
-      flex:1; padding:10px 0; background:none; border:none;
-      font-family:inherit; font-size:.8rem; letter-spacing:.1em;
-      text-transform:uppercase; cursor:pointer; color:rgba(255,255,255,.5);
-      border-bottom:2px solid transparent; transition:color .15s,border-color .15s;
-    `;
-    btn.textContent = label;
-    btn.addEventListener('pointerdown', () => { bus.emit('ui:click'); this._switchTab(tabId); });
-    return btn;
+  _saveLoadout() {
+    try {
+      localStorage.setItem(LOADOUT_STORAGE_KEY, JSON.stringify({ slot1: this._slot1, slot2: this._slot2 }));
+    } catch (_) {}
   }
 
-  _updateTabStyle() {
-    if (!this._tabDroneBtn || !this._tabWeaponsBtn) return;
-    const active = 'color:#fff;border-bottom:2px solid #297BFF;';
-    const idle   = 'color:rgba(255,255,255,.4);border-bottom:2px solid transparent;';
-    this._tabDroneBtn.style.cssText   += this._tab === 'drone'   ? active : idle;
-    this._tabWeaponsBtn.style.cssText += this._tab === 'weapons' ? active : idle;
-  }
-
-  _switchTab(tabId) {
-    this._tab = tabId;
-    this._updateTabStyle();
-    this._renderTab();
-    if (tabId === 'drone') {
-      this._showcase.showDrone();
-      this._showcase.setDroneModel(this._selectedDrone);
-      this._showcase.setWeapons(null, null);
-    } else {
-      this._showcase.showDrone();
-      this._showcase.setDroneModel(this._selectedDrone);
-      this._showcase.setWeapons(this._selectedWeapons[0] || null, this._selectedWeapons[1] || null);
+  _updateTabBar() {
+    if (!this._tabBar) return;
+    for (const btn of this._tabBar.querySelectorAll('.shop-tab')) {
+      btn.classList.toggle('active', btn.dataset.tab === this._tab);
     }
   }
 
-  _renderTab() {
+  _renderContent() {
     if (!this._contentEl) return;
     this._contentEl.innerHTML = '';
     if (this._tab === 'drone') this._renderDroneTab();
-    else                       this._renderWeaponsTab();
+    else this._renderWeaponsTab();
   }
 
-  // ── Drone tab ──────────────────────────────────────────────────────────────
+  // ── Drone tab ───────────────────────────────────────────────────────────
 
   _renderDroneTab() {
+    const list = document.createElement('div');
+    list.className = 'lo-drone-list';
+
     for (const model of DRONE_MODELS) {
-      const owned  = this._roguelite.isDroneUnlocked(model.id);
-      const afford = this._roguelite.coins >= model.cost;
-      const card   = this._buildDroneCard(model, owned, afford);
-      this._contentEl.appendChild(card);
-    }
-  }
+      const owned   = this._roguelite.isDroneUnlocked(model.id) || model.id === 'wasp';
+      const sel     = this._selectedDrone === model.id;
+      const row     = document.createElement('div');
+      row.className = 'lo-drone-row' + (sel ? ' lo-drone-row--selected' : '') + (!owned ? ' lo-drone-row--locked' : '');
 
-  _buildDroneCard(model, owned, afford) {
-    const isSelected = this._selectedDrone === model.id;
-    const div = document.createElement('div');
-    div.className = 'lo-card lo-drone-card' + (isSelected ? ' lo-card--selected' : '') + (!owned && !afford ? ' lo-card--locked' : '');
-    div.style.cssText = 'width:100%;max-width:340px;display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;';
+      // Radio dot
+      const radio = document.createElement('div');
+      radio.className = 'lo-drone-radio';
+      row.appendChild(radio);
 
-    // Icon
-    const iconEl = document.createElement('div');
-    iconEl.style.cssText = 'font-size:1.8rem;flex-shrink:0;';
-    iconEl.textContent = DRONE_ICONS[model.id] || '🔷';
-    div.appendChild(iconEl);
+      // Icon
+      const iconWrap = document.createElement('div');
+      iconWrap.className = 'lo-drone-icon';
+      iconWrap.innerHTML = DRONE_SVG[model.id] || DRONE_SVG.wasp;
+      row.appendChild(iconWrap);
 
-    // Info
-    const info = document.createElement('div');
-    info.style.cssText = 'flex:1;';
+      // Info
+      const info = document.createElement('div');
+      info.className = 'lo-drone-info';
 
-    const nameEl = document.createElement('div');
-    nameEl.style.cssText = 'font-size:.9rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;';
-    nameEl.textContent = t(model.nameKey) || model.id.toUpperCase();
+      const nameEl = document.createElement('div');
+      nameEl.className = 'lo-drone-name';
+      nameEl.textContent = t(model.nameKey) || model.id.toUpperCase();
+      info.appendChild(nameEl);
 
-    const descEl = document.createElement('div');
-    descEl.style.cssText = 'font-size:.7rem;color:rgba(255,255,255,.55);margin-top:2px;line-height:1.3;';
-    descEl.textContent = t(model.descKey) || '';
+      const statsEl = document.createElement('div');
+      statsEl.className = 'lo-drone-stats';
+      statsEl.textContent = `${model.maxHp} HP · ${Math.round(model.speedMult * 100)}% speed${model.dualCannon ? ' · dual cannon' : ''}`;
+      info.appendChild(statsEl);
 
-    // Stat pills
-    const statsEl = document.createElement('div');
-    statsEl.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;';
-    const statDefs = [
-      { label: `❤ ${model.maxHp} HP`, color: '#FF6666' },
-      { label: `⚡ ${Math.round(model.speedMult * 100)}% SPD`, color: '#66CCFF' },
-      ...(model.dualCannon ? [{ label: '× 2 CANNON', color: '#FFE28A' }] : []),
-    ];
-    for (const s of statDefs) {
-      const pill = document.createElement('span');
-      pill.style.cssText = `font-size:.6rem;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:3px;background:rgba(255,255,255,.08);color:${s.color};`;
-      pill.textContent = s.label;
-      statsEl.appendChild(pill);
-    }
+      row.appendChild(info);
 
-    info.appendChild(nameEl);
-    info.appendChild(descEl);
-    info.appendChild(statsEl);
-    div.appendChild(info);
-
-    // Right badge
-    const badge = document.createElement('div');
-    badge.style.cssText = 'font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;flex-shrink:0;';
-    if (isSelected) {
-      badge.style.color = '#297BFF';
-      badge.textContent = '✓';
-    } else if (owned || model.id === 'wasp') {
-      badge.style.color = 'rgba(255,255,255,.3)';
-      badge.textContent = '';
-    } else {
-      badge.style.color = afford ? '#FFE28A' : 'rgba(255,255,255,.3)';
-      badge.textContent = `⬡ ${model.cost}`;
-    }
-    div.appendChild(badge);
-
-    div.addEventListener('pointerdown', () => {
-      bus.emit('ui:click');
-      if (owned || model.id === 'wasp') {
-        this._selectedDrone = model.id;
-        this._showcase.setDroneModel(model.id);
-        this._renderTab();
-      } else if (afford) {
-        if (this._roguelite.droneBuy(model.id)) {
-          this._selectedDrone = model.id;
-          this._showcase.setDroneModel(model.id);
-          this._renderTab();
-        }
+      // Lock icon
+      if (!owned) {
+        const lock = document.createElement('span');
+        lock.className = 'lo-drone-lock';
+        lock.textContent = '🔒';
+        row.appendChild(lock);
+      } else if (sel) {
+        const check = document.createElement('span');
+        check.style.cssText = 'font-size:.8rem;color:#297BFF;font-weight:700;flex-shrink:0;';
+        check.textContent = '✓';
+        row.appendChild(check);
       }
-    });
 
-    return div;
+      if (owned) {
+        row.addEventListener('pointerdown', () => {
+          bus.emit('ui:click');
+          this._selectedDrone = model.id;
+          this._renderContent();
+        });
+      }
+
+      list.appendChild(row);
+    }
+
+    this._contentEl.appendChild(list);
   }
 
-  // ── Weapons tab ────────────────────────────────────────────────────────────
+  // ── Weapons tab ─────────────────────────────────────────────────────────
 
   _renderWeaponsTab() {
-    // Slot display
-    const slotRow = document.createElement('div');
-    slotRow.className = 'lo-slots';
-    slotRow.innerHTML = `
-      <span class="lo-slot-label">${t('loadout.slot') || 'Slot'} 1:</span>
-      <span class="lo-slot" id="lo-slot-a">${this._selectedWeapons[0] ? (WEAPON_ICONS[this._selectedWeapons[0]] + ' ' + (t('ws.' + this._selectedWeapons[0] + '.name') || '')) : '—'}</span>
-      <span class="lo-slot-label">${t('loadout.slot') || 'Slot'} 2:</span>
-      <span class="lo-slot" id="lo-slot-b">${this._selectedWeapons[1] ? (WEAPON_ICONS[this._selectedWeapons[1]] + ' ' + (t('ws.' + this._selectedWeapons[1] + '.name') || '')) : '—'}</span>
-    `;
-    this._contentEl.appendChild(slotRow);
-
     const unlocked = WEAPON_IDS.filter(w => this._roguelite.isWorkshopUnlocked('unlock_' + w));
 
-    const grid = document.createElement('div');
-    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;width:100%;';
-
     if (unlocked.length === 0) {
-      const msg = document.createElement('p');
-      msg.style.cssText = 'color:rgba(255,255,255,.5);font-size:.85rem;text-align:center;grid-column:1/-1;';
-      msg.textContent = t('loadout.noWeapons') || 'No weapons unlocked yet.';
-      grid.appendChild(msg);
-    } else {
-      for (const w of unlocked) {
-        grid.appendChild(this._buildWeaponCard(w));
-      }
+      const msg = document.createElement('div');
+      msg.className = 'lo-no-weapons';
+      msg.innerHTML = `<div>${t('loadout.noWeapons') || 'Unlock weapons in the Workshop first.'}</div>
+        <button id="lo-goto-workshop">${t('loadout.gotoWorkshop') || '→ WORKSHOP'}</button>`;
+      this._contentEl.appendChild(msg);
+      const wsBtn = document.getElementById('lo-goto-workshop');
+      if (wsBtn) wsBtn.addEventListener('pointerdown', () => { bus.emit('ui:click'); bus.emit('menu:workshop'); });
+      return;
     }
+
+    // Slot rows
+    const slot1Row = this._makeSlotRow(1, this._slot1);
+    const slot2Row = this._makeSlotRow(2, this._slot2);
+    this._contentEl.appendChild(slot1Row);
+    this._contentEl.appendChild(slot2Row);
+
+    // Hint
+    const hint = document.createElement('div');
+    hint.className = 'lo-weapons-hint';
+    hint.textContent = t('loadout.weaponHint') || 'Tap a slot, then tap a weapon to assign';
+    this._contentEl.appendChild(hint);
+
+    // Weapon picker grid
+    const grid = document.createElement('div');
+    grid.className = 'shop-grid';
+
+    for (const w of unlocked) {
+      const isInSlot1 = this._slot1 === w;
+      const isInSlot2 = this._slot2 === w;
+      const isAssigned = isInSlot1 || isInSlot2;
+
+      const card = document.createElement('div');
+      card.className = 'shop-card' + (isAssigned ? ' shop-card--selected' : '');
+
+      const iconEl = document.createElement('div');
+      iconEl.className = 'shop-card-icon';
+      iconEl.innerHTML = WEAPON_SVG[w] || '';
+      card.appendChild(iconEl);
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'shop-card-name';
+      nameEl.textContent = WEAPON_NAMES[w] || w.toUpperCase();
+      card.appendChild(nameEl);
+
+      if (isInSlot1) {
+        const slotLabel = document.createElement('div');
+        slotLabel.className = 'shop-card-stat';
+        slotLabel.textContent = 'SLOT 1';
+        card.appendChild(slotLabel);
+      } else if (isInSlot2) {
+        const slotLabel = document.createElement('div');
+        slotLabel.className = 'shop-card-stat';
+        slotLabel.textContent = 'SLOT 2';
+        card.appendChild(slotLabel);
+      }
+
+      card.addEventListener('pointerdown', () => {
+        bus.emit('ui:click');
+        this._assignWeapon(w);
+      });
+
+      grid.appendChild(card);
+    }
+
     this._contentEl.appendChild(grid);
   }
 
-  _buildWeaponCard(weaponType) {
-    const isSelected = this._selectedWeapons.includes(weaponType);
-    const div = document.createElement('div');
-    div.className = 'lo-card' + (isSelected ? ' lo-card--selected' : '');
+  _makeSlotRow(slotNum, weaponType) {
+    const row = document.createElement('div');
+    row.className = 'lo-slot-row' + (this._activeSlot === slotNum ? ' lo-slot-row--active' : '');
 
-    const icon = document.createElement('div');
-    icon.className = 'lo-card-icon';
-    icon.textContent = WEAPON_ICONS[weaponType] || '🔫';
+    const label = document.createElement('span');
+    label.className = 'lo-slot-label';
+    label.textContent = `SLOT ${slotNum}`;
+    row.appendChild(label);
 
-    const name = document.createElement('div');
-    name.className = 'lo-card-name';
-    name.textContent = t(`ws.${weaponType}.name`) || weaponType.toUpperCase();
+    const value = document.createElement('span');
+    value.className = 'lo-slot-value' + (weaponType ? '' : ' lo-slot-value--empty');
+    value.textContent = weaponType ? (WEAPON_NAMES[weaponType] || weaponType.toUpperCase()) : '— none —';
+    row.appendChild(value);
 
-    div.appendChild(icon);
-    div.appendChild(name);
+    if (weaponType) {
+      const clear = document.createElement('span');
+      clear.className = 'lo-slot-clear';
+      clear.textContent = '✕';
+      clear.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        if (slotNum === 1) this._slot1 = null;
+        else this._slot2 = null;
+        this._saveLoadout();
+        this._renderContent();
+      });
+      row.appendChild(clear);
+    }
 
-    div.addEventListener('pointerdown', () => {
+    row.addEventListener('pointerdown', () => {
       bus.emit('ui:click');
-      this._toggleWeapon(weaponType);
-      this._showcase.showWeaponPreview(weaponType);
+      this._activeSlot = slotNum;
+      this._renderContent();
     });
 
-    return div;
+    return row;
   }
 
-  _toggleWeapon(weaponType) {
-    const idx = this._selectedWeapons.indexOf(weaponType);
-    if (idx >= 0) {
-      this._selectedWeapons.splice(idx, 1);
-    } else if (this._selectedWeapons.length < 2) {
-      this._selectedWeapons.push(weaponType);
-    } else {
-      this._selectedWeapons.shift();
-      this._selectedWeapons.push(weaponType);
+  _assignWeapon(weaponType) {
+    // If weapon is already in either slot, clear it (toggle off)
+    if (this._slot1 === weaponType) {
+      this._slot1 = null;
+      this._saveLoadout();
+      this._renderContent();
+      return;
     }
-    this._renderTab();
-    this._showcase.setWeapons(this._selectedWeapons[0] || null, this._selectedWeapons[1] || null);
+    if (this._slot2 === weaponType) {
+      this._slot2 = null;
+      this._saveLoadout();
+      this._renderContent();
+      return;
+    }
+    // Assign to active slot
+    if (this._activeSlot === 1) {
+      this._slot1 = weaponType;
+      this._activeSlot = 2; // auto-advance to slot 2
+    } else {
+      this._slot2 = weaponType;
+      this._activeSlot = 1;
+    }
+    this._saveLoadout();
+    this._renderContent();
   }
 }
