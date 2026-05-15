@@ -144,10 +144,15 @@ export class LoadoutScreen {
         this._slot1 = data.slot1 || null;
         this._slot2 = data.slot2 || null;
       } else {
-        // Fall back to roguelite.loadout array (legacy)
-        const arr = this._roguelite?.loadout ?? [];
-        this._slot1 = arr[0] || null;
-        this._slot2 = arr[1] || null;
+        // Fall back to roguelite.loadout (object or legacy array)
+        const lo = this._roguelite?.loadout;
+        if (lo && !Array.isArray(lo)) {
+          this._slot1 = lo.slot1 || null;
+          this._slot2 = lo.slot2 || null;
+        } else {
+          this._slot1 = Array.isArray(lo) ? (lo[0] || null) : null;
+          this._slot2 = Array.isArray(lo) ? (lo[1] || null) : null;
+        }
       }
     } catch (_) {
       this._slot1 = null;
