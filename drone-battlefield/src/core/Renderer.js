@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 
 const FOV_NORMAL_DESKTOP = 55;
-const FOV_NORMAL_MOBILE  = 62;
-const FOV_EXPLOSION = 68;
+const FOV_NORMAL_MOBILE  = 58;
+const FOV_EXPLOSION = 65;
 const PIXEL_RATIO_CAP = 1.75;
 
-function isMobile() { return window.innerWidth < 768; }
+function isMobile() {
+  return window.innerWidth < 768 || ('ontouchstart' in window && window.innerWidth < 1024);
+}
 
 const INTRO_DURATION  = 1.5;
 const INTRO_START_Y   = 80;
@@ -61,10 +63,10 @@ export class Renderer {
 
   _applyMobileOffset() {
     if (isMobile()) {
-      this._cameraOffset.set(0, 15, 14);
+      this._cameraOffset.set(0, 16, 13);
       this._fovNormal = FOV_NORMAL_MOBILE;
     } else {
-      this._cameraOffset.set(0, 28, 18);
+      this._cameraOffset.set(0, 22, 18);
       this._fovNormal = FOV_NORMAL_DESKTOP;
     }
   }
@@ -145,8 +147,8 @@ export class Renderer {
     const targetX = leadX + this._cameraOffset.x;
     const targetY = this._cameraTarget.y + this._cameraOffset.y;
     const targetZ = leadZ + this._cameraOffset.z;
-    this.camera.position.x += (targetX - this.camera.position.x) * Math.min(1, dt * 4.2);
-    this.camera.position.z += (targetZ - this.camera.position.z) * Math.min(1, dt * 4.2);
+    this.camera.position.x += (targetX - this.camera.position.x) * Math.min(1, dt * 5.5);
+    this.camera.position.z += (targetZ - this.camera.position.z) * Math.min(1, dt * 5.5);
 
     // Cinematic intro: descend from high altitude, ease-out curve
     if (this._introTimer > 0) {
@@ -155,7 +157,7 @@ export class Renderer {
       const eased = 1 - Math.pow(1 - progress, 3);            // ease-out cubic
       this.camera.position.y = INTRO_START_Y + (targetY - INTRO_START_Y) * eased;
     } else {
-      this.camera.position.y += (targetY - this.camera.position.y) * Math.min(1, dt * 4.2);
+      this.camera.position.y += (targetY - this.camera.position.y) * Math.min(1, dt * 5.5);
     }
 
     this.camera.lookAt(leadX, 0, leadZ);

@@ -546,9 +546,19 @@ export class World {
   // ── NIGHT FOREST ─────────────────────────────────────────────────────────
 
   _buildNightForest() {
-    // fogNear=38 so closer objects stay visible; sun/hemi bumped for playability
-    this._applyNightLighting(0x8899bb, 0x0a1520, 42, 90, 0.55, 0.72);
-    this._scene.background = new THREE.Color(0x1a2a4a);
+    // Dusk/night — warm directional sun + cool hemi, clearly visible
+    this._applyNightLighting(0xFFCCAA, 0x1a2535, 45, 110, 0.85, 0.65);
+    this._scene.background = new THREE.Color(0x1a2535);
+    // Override hemi sky/ground colors to blue-green dusk
+    for (const l of this._lights) {
+      if (l.isHemisphereLight) {
+        l.color.setHex(0x223355);
+        l.groundColor.setHex(0x1a2a1a);
+      }
+      if (l.isDirectionalLight && l !== this._sun) l.intensity = 0.30;
+    }
+    // Low-angle dusk sun position
+    if (this._sun) this._sun.position.set(-15, 28, 10);
 
     const geoNF = new THREE.PlaneGeometry(160, 60, 64, 24);
     this._applyGrassVertexColors(geoNF, 0x2A4A28, [
@@ -626,7 +636,7 @@ export class World {
       const flame = new THREE.Mesh(flameGeo, flameMat.clone());
       flame.position.y = 0.98; g.add(flame);
       // Warm orange point light
-      const light = new THREE.PointLight(0xFF5510, 1.8, 8);
+      const light = new THREE.PointLight(0xFF6620, 2.4, 18);
       light.position.y = 1.1; g.add(light);
       this._scene.add(g); this._objects.push(g);
     }
