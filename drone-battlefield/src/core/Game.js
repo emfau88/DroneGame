@@ -185,10 +185,10 @@ export class Game {
 
     this._onWeaponImpactShake = ({ type }) => {
       const t = (type || '').toLowerCase();
-      if (t === 'bomb')    this.renderer.shake(8, 0.35);
+      if (t === 'bomb')    this.renderer.shake(5, 0.35);
       if (t === 'missile') this.renderer.shake(4, 0.25);
       if (t === 'emp')     this.renderer.shake(2, 0.2);
-      if (t === 'cluster') this.renderer.shake(3, 0.2);
+      if (t === 'cluster') this.renderer.shake(3.5, 0.2);
     };
     this._onFlakNearMiss = ({ distance }) => {
       this.hud.showNearMiss();
@@ -449,6 +449,8 @@ export class Game {
     this._waveComplete = false;
 
     this.hud.showCenterText(`WAVE ${this._waveNumber} INCOMING`, 3.0);
+    this.audio.playWaveIncoming();
+    bus.emit('map:waveStart', { wave: this._waveNumber });
 
     // 3 second delay then spawn
     let timer = 0;
@@ -487,6 +489,7 @@ export class Game {
     this._cleanupMapListeners();
 
     this.hud.showCenterText(t('center.mapCleared').toUpperCase(), 1.5);
+    this.audio.playMapComplete();
     this.roguelite.endMap(true);
     bus.emit('map:complete', { mapId: this._currentTemplate?.id, survived: true });
 
@@ -524,6 +527,7 @@ export class Game {
   _onRunOver() {
     this.hud.hide();
     this._runJustEnded = true;
+    this.audio.playRunLoss();
     const result = this.roguelite.endRun(false);
     const stats  = result.stats;
     const meta   = result.newMetaUpgrade;
@@ -535,6 +539,7 @@ export class Game {
   _onRunWin() {
     this.hud.hide();
     this._runJustEnded = true;
+    this.audio.playRunWin();
     const result = this.roguelite.endRun(true);
     const stats  = result.stats;
     const meta   = result.newMetaUpgrade;

@@ -162,6 +162,7 @@ export class WeaponSystem {
     }
 
     // Falling bomb visual: small dark sphere drops from drone to ground over 0.28s
+    bus.emit('audio:bombDrop');
     if (this._scene) {
       const bombGeo = new THREE.SphereGeometry(0.18, 6, 4);
       const bombMat = new THREE.MeshBasicMaterial({ color: 0x222211 });
@@ -268,6 +269,7 @@ export class WeaponSystem {
         timer: s * 0.13,
         pos: subPos.clone(),
         affected,
+        index: s,
       });
     }
   }
@@ -310,7 +312,8 @@ export class WeaponSystem {
           for (const { unit, damage } of sub.affected) {
             if (unit.alive && unit.state !== 'dead') unit.takeDamage(damage);
           }
-          bus.emit('weapon:impact', { type: 'bomb', position: sub.pos, affectedUnits: sub.affected });
+          bus.emit('weapon:impact', { type: 'cluster', position: sub.pos, affectedUnits: sub.affected });
+          bus.emit('audio:clusterSub', { index: sub.index ?? 0 });
         } else {
           remaining.push(sub);
         }

@@ -212,7 +212,7 @@ export class WorkshopScreen {
       card.addEventListener('pointerdown', () => {
         if (!afford) return;
         if (this._roguelite.droneBuy(model.id)) {
-          bus.emit('ui:click');
+          bus.emit('audio:workshopPurchase');
           this._updateCoins();
           this._renderContent();
         }
@@ -285,7 +285,7 @@ export class WorkshopScreen {
       card.addEventListener('pointerdown', () => {
         if (!afford) return;
         if (this._roguelite.workshopBuy(item.id)) {
-          bus.emit('ui:click');
+          bus.emit('audio:workshopPurchase');
           this._updateCoins();
           this._renderContent();
         }
@@ -357,7 +357,7 @@ export class WorkshopScreen {
       card.addEventListener('pointerdown', () => {
         if (!afford) return;
         if (this._roguelite.workshopBuy(item.id)) {
-          bus.emit('ui:click');
+          bus.emit('audio:workshopPurchase');
           this._updateCoins();
           this._renderContent();
         }

@@ -27,7 +27,7 @@ export class AudioSystem {
     // weapon:impact — drone weapon hits
     this._onImpact = ({ type }) => {
       const t = (type || '').toLowerCase();
-      if (t === 'bomb' || t === 'cluster') this.playExplosion(1);
+      if (t === 'bomb') this.playExplosion(1);
       if (t === 'emp')     this.playEMP();
       if (t === 'cannon')  this.playCannonPew();
       if (t === 'missile') this.playExplosion(0.6);
@@ -55,12 +55,21 @@ export class AudioSystem {
     this._onUIClick = () => this.playUIClick();
 
     this._onUnitDied = ({ unit }) => this.playUnitDeath(unit?.type);
-    bus.on('weapon:impact',   this._onImpact);
-    bus.on('weapon:dronefire', this._onDroneFire);
-    bus.on('unit:fire',        this._onGunshot);
-    bus.on('unit:died',        this._onUnitDied);
-    bus.on('ui:click',         this._onUIClick);
-    bus.on('level:ended',      ({ result }) => result === 'win' ? this.playLevelWin() : this.playLevelLoss());
+    bus.on('weapon:impact',          this._onImpact);
+    bus.on('weapon:dronefire',       this._onDroneFire);
+    bus.on('unit:fire',              this._onGunshot);
+    bus.on('unit:died',              this._onUnitDied);
+    bus.on('ui:click',               this._onUIClick);
+    bus.on('drone:dead',             () => this.playDroneDeath());
+    bus.on('map:waveStart',          () => this.playWaveIncoming());
+    bus.on('audio:bombDrop',         () => this.playBombDrop());
+    bus.on('audio:clusterSub',       ({ index }) => this.playClusterSub(index));
+    bus.on('audio:workshopPurchase', () => this.playWorkshopPurchase());
+    bus.on('drone:killstreakReady',  () => this.playPowerReady('killstreak'));
+    bus.on('drone:overchargeReady',  () => this.playPowerReady('overcharge'));
+    bus.on('enemyDrone:approach',    () => this.playEnemyDroneApproach());
+    bus.on('map:complete',           () => this.playMapComplete());
+    bus.on('run:ended',              ({ cleared }) => cleared ? this.playRunWin() : this.playRunLoss());
   }
 
   /** Called by Game on first pointer interaction to unlock AudioContext. */
@@ -347,24 +356,6 @@ export class AudioSystem {
     noise.start(t); noise.stop(t + 0.2);
   }
 
-  /** Impact: mid-frequency thud. */
-  playImpact() {
-    if (!this._initialized) return;
-    const t = this._now();
-
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(400, t);
-    osc.frequency.exponentialRampToValueAtTime(80, t + 0.15);
-    const g = this._gain(0);
-    osc.connect(g);
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.3, t + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-    osc.start(t);
-    osc.stop(t + 0.17);
-  }
-
   /** UI click: clean sine blip. */
   playUIClick() {
     if (!this._initialized) return;
@@ -382,43 +373,64 @@ export class AudioSystem {
     osc.stop(t + 0.045);
   }
 
-  /** Win: three ascending notes C-E-G. */
-  playLevelWin() {
+  /** Map cleared: C4+E4+G4 chord simultaneously. */
+  playMapComplete() {
     if (!this._initialized) return;
-    const t    = this._now();
-    const notes = [261.63, 329.63, 392.00]; // C4, E4, G4
-    notes.forEach((freq, i) => {
+    const t = this._now();
+    [261.63, 329.63, 392.00].forEach(freq => {
       const osc = this.ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
+      osc.type = 'sine'; osc.frequency.value = freq;
       const g = this._gain(0);
       osc.connect(g);
-      const start = t + i * 0.15;
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(0.25, start + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.15);
-      osc.start(start);
-      osc.stop(start + 0.17);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.4, t + 0.1);
+      g.gain.setValueAtTime(0.4, t + 0.5);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.8);
+      osc.start(t); osc.stop(t + 0.85);
     });
   }
 
-  /** Loss: descending minor interval (A4→F4). */
-  playLevelLoss() {
+  /** Run won: C4+E4+G4 chord → G4+B4+D5 resolution. */
+  playRunWin() {
     if (!this._initialized) return;
-    const t     = this._now();
-    const notes = [440, 349.23]; // A4, F4
-    notes.forEach((freq, i) => {
+    const t = this._now();
+    [261.63, 329.63, 392.00].forEach(freq => {
       const osc = this.ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
+      osc.type = 'sine'; osc.frequency.value = freq;
       const g = this._gain(0);
       osc.connect(g);
-      const start = t + i * 0.3;
-      g.gain.setValueAtTime(0, start);
-      g.gain.linearRampToValueAtTime(0.25, start + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
-      osc.start(start);
-      osc.stop(start + 0.32);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.4, t + 0.1);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      osc.start(t); osc.stop(t + 0.35);
+    });
+    [392.00, 493.88, 587.33].forEach(freq => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      const g = this._gain(0);
+      osc.connect(g);
+      g.gain.setValueAtTime(0, t + 0.3);
+      g.gain.linearRampToValueAtTime(0.5, t + 0.4);
+      g.gain.setValueAtTime(0.5, t + 0.8);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+      osc.start(t + 0.3); osc.stop(t + 1.15);
+    });
+  }
+
+  /** Run lost: G4 → Eb4 → C4 descending minor. */
+  playRunLoss() {
+    if (!this._initialized) return;
+    const t = this._now();
+    [[392.00, 0], [311.13, 0.2], [261.63, 0.4]].forEach(([freq, delay]) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      const g = this._gain(0);
+      osc.connect(g);
+      const s = t + delay;
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(0.4, s + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + (delay === 0.4 ? 0.6 : 0.22));
+      osc.start(s); osc.stop(s + (delay === 0.4 ? 0.65 : 0.25));
     });
   }
 
@@ -464,18 +476,56 @@ export class AudioSystem {
   playUnitDeath(unitType) {
     if (!this._initialized) return;
     const t = this._now();
-    if (unitType === 'soldier' || unitType === 'rocket' || unitType === 'rocketInfantry' || unitType === 'commander') {
-      // Infantry: short noise thud
+    if (unitType === 'soldier' || unitType === 'rocket' || unitType === 'rocketInfantry') {
+      // Infantry: bandpass noise burst + short sine thud
       const noise = this.ctx.createBufferSource();
       noise.buffer = this._noiseBuffer();
-      const hpf = this.ctx.createBiquadFilter();
-      hpf.type = 'highpass'; hpf.frequency.value = 300;
-      const g = this._gain(0);
-      noise.connect(hpf); hpf.connect(g);
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.12, t + 0.003);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-      noise.start(t); noise.stop(t + 0.07);
+      const bpf = this.ctx.createBiquadFilter();
+      bpf.type = 'bandpass'; bpf.frequency.value = 1400; bpf.Q.value = 0.8;
+      const ng = this._gain(0);
+      noise.connect(bpf); bpf.connect(ng);
+      ng.gain.setValueAtTime(0, t);
+      ng.gain.linearRampToValueAtTime(0.35, t + 0.002);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
+      noise.start(t); noise.stop(t + 0.03);
+
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(220, t);
+      osc.frequency.exponentialRampToValueAtTime(80, t + 0.08);
+      const og = this._gain(0);
+      osc.connect(og);
+      og.gain.setValueAtTime(0, t);
+      og.gain.linearRampToValueAtTime(0.2, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      osc.start(t); osc.stop(t + 0.1);
+    } else if (unitType === 'commander') {
+      // Commander: same as infantry + descending sine tail + brief delay echo
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this._noiseBuffer();
+      const bpf = this.ctx.createBiquadFilter();
+      bpf.type = 'bandpass'; bpf.frequency.value = 1400; bpf.Q.value = 0.8;
+      const ng = this._gain(0);
+      noise.connect(bpf); bpf.connect(ng);
+      ng.gain.setValueAtTime(0, t);
+      ng.gain.linearRampToValueAtTime(0.35, t + 0.002);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.025);
+      noise.start(t); noise.stop(t + 0.03);
+
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.setValueAtTime(440, t);
+      osc.frequency.exponentialRampToValueAtTime(180, t + 0.25);
+      const og = this._gain(0);
+      const delay = this.ctx.createDelay(0.5);
+      delay.delayTime.value = 0.06;
+      const fbGain = this.ctx.createGain();
+      fbGain.gain.value = 0.2;
+      osc.connect(og);
+      og.connect(delay); delay.connect(fbGain); fbGain.connect(delay);
+      delay.connect(this._sfxGain);
+      og.gain.setValueAtTime(0, t);
+      og.gain.linearRampToValueAtTime(0.4, t + 0.005);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      osc.start(t); osc.stop(t + 0.28);
     } else if (unitType === 'enemyDrone') {
       // Drone: electric crackle
       const noise = this.ctx.createBufferSource();
@@ -511,7 +561,7 @@ export class AudioSystem {
     [523, 659].forEach((freq, i) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
+      osc.connect(gain); gain.connect(this._sfxGain);
       osc.type = 'sine';
       osc.frequency.value = freq;
       const t = now + i * 0.1;
@@ -556,6 +606,227 @@ export class AudioSystem {
     this._windGain = null;
   }
 
+  /** Drone player death: crack + electronic fail + rumble. */
+  playDroneDeath() {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    // Layer 1 — initial crack
+    const crack = this.ctx.createBufferSource();
+    crack.buffer = this._noiseBuffer();
+    const lpf = this.ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 600;
+    const cg = this._gain(0);
+    crack.connect(lpf); lpf.connect(cg);
+    cg.gain.setValueAtTime(0, t);
+    cg.gain.linearRampToValueAtTime(1.0, t + 0.002);
+    cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.02);
+    crack.start(t); crack.stop(t + 0.025);
+
+    // Layer 2 — electronic death: sine sweep
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(440, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.6);
+    const og = this._gain(0);
+    osc.connect(og);
+    og.gain.setValueAtTime(0, t);
+    og.gain.linearRampToValueAtTime(0.7, t + 0.01);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    osc.start(t); osc.stop(t + 0.65);
+
+    // Layer 2b — crackle pulses
+    for (let i = 0; i < 4; i++) {
+      const pulse = this.ctx.createBufferSource();
+      pulse.buffer = this._noiseBuffer();
+      const hpf = this.ctx.createBiquadFilter();
+      hpf.type = 'highpass'; hpf.frequency.value = 2000;
+      const pg = this._gain(0);
+      pulse.connect(hpf); hpf.connect(pg);
+      const ps = t + i * 0.05;
+      pg.gain.setValueAtTime(0, ps);
+      pg.gain.linearRampToValueAtTime(0.5, ps + 0.002);
+      pg.gain.exponentialRampToValueAtTime(0.0001, ps + 0.015);
+      pulse.start(ps); pulse.stop(ps + 0.02);
+    }
+
+    // Layer 3 — rumble tail
+    const rumble = this.ctx.createBufferSource();
+    rumble.buffer = this._noiseBuffer();
+    const rlpf = this.ctx.createBiquadFilter();
+    rlpf.type = 'lowpass'; rlpf.frequency.value = 80;
+    const rg = this._gain(0);
+    rumble.connect(rlpf); rlpf.connect(rg);
+    rg.gain.setValueAtTime(0, t + 0.05);
+    rg.gain.linearRampToValueAtTime(0.5, t + 0.1);
+    rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+    rumble.start(t + 0.05); rumble.stop(t + 0.95);
+  }
+
+  /** Wave incoming alarm: two low pulses + rising swell. */
+  playWaveIncoming() {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    for (let i = 0; i < 2; i++) {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = 120;
+      const g = this._gain(0);
+      osc.connect(g);
+      const s = t + i * 0.2;
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(0.6, s + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.15);
+      osc.start(s); osc.stop(s + 0.17);
+    }
+
+    // Rising noise swell after pulses
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this._noiseBuffer();
+    const bpf = this.ctx.createBiquadFilter();
+    bpf.type = 'bandpass';
+    bpf.frequency.setValueAtTime(200, t + 0.4);
+    bpf.frequency.exponentialRampToValueAtTime(800, t + 0.7);
+    bpf.Q.value = 1.2;
+    const ng = this._gain(0);
+    noise.connect(bpf); bpf.connect(ng);
+    ng.gain.setValueAtTime(0, t + 0.4);
+    ng.gain.linearRampToValueAtTime(0.4, t + 0.55);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+    noise.start(t + 0.4); noise.stop(t + 0.75);
+  }
+
+  /** Falling bomb whistle: descending sine sweep with reverb tail. */
+  playBombDrop() {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(900, t);
+    osc.frequency.exponentialRampToValueAtTime(110, t + 0.28);
+
+    const delay = this.ctx.createDelay(0.5);
+    delay.delayTime.value = 0.04;
+    const fbGain = this.ctx.createGain();
+    fbGain.gain.value = 0.25;
+    const dryGain = this._gain(0);
+    const wetGain = this.ctx.createGain();
+    wetGain.gain.value = 0.3;
+    wetGain.connect(this._sfxGain);
+
+    osc.connect(dryGain);
+    osc.connect(delay);
+    delay.connect(fbGain); fbGain.connect(delay);
+    delay.connect(wetGain);
+
+    const mid = t + 0.14;
+    dryGain.gain.setValueAtTime(0, t);
+    dryGain.gain.linearRampToValueAtTime(0.7, mid);
+    dryGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+    osc.start(t); osc.stop(t + 0.30);
+  }
+
+  /** Enemy drone approach: rising mechanical buzz with tremolo. */
+  playEnemyDroneApproach() {
+    if (!this._initialized || this._droneApproachPlaying) return;
+    this._droneApproachPlaying = true;
+    const t = this._now();
+    const duration = 0.8;
+
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(80, t);
+    osc.frequency.exponentialRampToValueAtTime(220, t + duration);
+
+    // Tremolo LFO
+    const lfo = this.ctx.createOscillator();
+    lfo.type = 'sine'; lfo.frequency.value = 18;
+    const lfoGain = this.ctx.createGain();
+    lfoGain.gain.value = 0.15;
+    lfo.connect(lfoGain);
+
+    const g = this.ctx.createGain();
+    g.gain.value = 0;
+    lfoGain.connect(g.gain);
+    osc.connect(g);
+    g.connect(this._sfxGain);
+
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.15);
+    g.gain.setValueAtTime(0.5, t + duration - 0.15);
+    g.gain.linearRampToValueAtTime(0, t + duration);
+
+    osc.start(t); lfo.start(t);
+    osc.stop(t + duration); lfo.stop(t + duration);
+    setTimeout(() => { this._droneApproachPlaying = false; }, duration * 1000 + 100);
+  }
+
+  /** Power-up ready chime: aggressive (killstreak) or powerful (overcharge). */
+  playPowerReady(type) {
+    if (!this._initialized) return;
+    const t = this._now();
+    const notes = type === 'killstreak'
+      ? [659.25, 783.99]           // E5, G5
+      : [523.25, 659.25, 783.99];  // C5, E5, G5
+
+    notes.forEach((freq, i) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      const g = this._gain(0);
+      osc.connect(g);
+      const s = t + i * 0.1;
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(0.5, s + 0.1);
+      g.gain.setValueAtTime(0.5, s + 0.2);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.3);
+      osc.start(s); osc.stop(s + 0.32);
+    });
+  }
+
+  /** Cluster sub-impact: short light crunch with pitch variation per index. */
+  playClusterSub(index = 0) {
+    if (!this._initialized) return;
+    const t = this._now();
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this._noiseBuffer();
+    const lpf = this.ctx.createBiquadFilter();
+    lpf.type = 'lowpass'; lpf.frequency.value = 1200;
+    const ng = this._gain(0);
+    noise.connect(lpf); lpf.connect(ng);
+    ng.gain.setValueAtTime(0, t);
+    ng.gain.linearRampToValueAtTime(0.45, t + 0.003);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.015);
+    noise.start(t); noise.stop(t + 0.02);
+
+    const freq = 95 + index * 6;
+    const osc = this.ctx.createOscillator();
+    osc.type = 'sine'; osc.frequency.value = freq;
+    const og = this._gain(0);
+    osc.connect(og);
+    og.gain.setValueAtTime(0, t);
+    og.gain.linearRampToValueAtTime(0.3, t + 0.004);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    osc.start(t); osc.stop(t + 0.2);
+  }
+
+  /** Workshop purchase: coin clink — two bright ascending notes. */
+  playWorkshopPurchase() {
+    if (!this._initialized) return;
+    const t = this._now();
+    [[523.25, 0], [659.25, 0.06]].forEach(([freq, delay]) => {
+      const osc = this.ctx.createOscillator();
+      osc.type = 'sine'; osc.frequency.value = freq;
+      const g = this._gain(0);
+      osc.connect(g);
+      const s = t + delay;
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(0.5, s + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.14);
+      osc.start(s); osc.stop(s + 0.15);
+    });
+  }
+
   setVolume(type, value) {
     if (type === 'master' && this._masterGain) {
       this.masterVolume = value;
@@ -569,10 +840,10 @@ export class AudioSystem {
 
   destroy() {
     this.stopWind();
-    bus.off('weapon:impact',    this._onImpact);
-    bus.off('weapon:dronefire', this._onDroneFire);
-    bus.off('unit:fire',        this._onGunshot);
-    bus.off('unit:died',        this._onUnitDied);
-    bus.off('ui:click',         this._onUIClick);
+    bus.off('weapon:impact',          this._onImpact);
+    bus.off('weapon:dronefire',       this._onDroneFire);
+    bus.off('unit:fire',              this._onGunshot);
+    bus.off('unit:died',              this._onUnitDied);
+    bus.off('ui:click',               this._onUIClick);
   }
 }
