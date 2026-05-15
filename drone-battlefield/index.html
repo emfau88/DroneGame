@@ -614,32 +614,38 @@
     .lo-card-name { font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
     /* ─── Workshop / Loadout – mobile responsive ──────────── */
-    /* On narrow screens: vertical stack — showcase on top, content below */
-    @media (max-width: 639px) {
+    @media (max-width: 767px) {
       #screen-workshop,
       #screen-loadout {
         flex-direction: column !important;
         overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
+      /* Hide 3D drone canvas on mobile — too small to be useful */
       #ws-showcase-wrap,
       #lo-showcase-wrap {
-        width: 100% !important;
-        min-width: unset !important;
-        height: 200px;
-        flex-shrink: 0;
-        border-right: none !important;
-        border-bottom: 1px solid rgba(255,255,255,.08);
+        display: none !important;
       }
-      #ws-showcase-wrap canvas,
-      #lo-showcase-wrap canvas {
-        height: 200px !important;
-      }
+      /* Workshop grid: 2-column, scrollable, fills available height */
       #workshop-grid {
-        max-height: none;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
+        max-height: calc(100dvh - 120px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 0 8px;
+        gap: 8px;
+        max-width: 100%;
       }
+      .ws-card {
+        min-height: 80px;
+        padding: 10px 8px 8px;
+      }
+      .ws-card-name { font-size: max(.75rem, 13px); }
+      .ws-card-desc { font-size: max(.65rem, 13px); }
       #loadout-weapons {
-        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+        grid-template-columns: repeat(2, 1fr);
+        max-width: 100%;
+        padding: 0 8px;
       }
     }
   </style>

@@ -138,7 +138,7 @@ export class World {
       this._sun.color.setHex(tint);
     }
     for (const l of this._lights) {
-      if (l.isHemisphereLight) { l.intensity = hemiIntensity; l.color.setHex(0x1A2840); l.groundColor.setHex(0x0A0A10); }
+      if (l.isHemisphereLight) { l.intensity = hemiIntensity; l.color.setHex(0x1a2a4a); l.groundColor.setHex(0x0d1a0d); }
       if (l.isDirectionalLight && l !== this._sun) l.intensity = 0.05;
     }
   }
@@ -547,7 +547,8 @@ export class World {
 
   _buildNightForest() {
     // fogNear=38 so closer objects stay visible; sun/hemi bumped for playability
-    this._applyNightLighting(0x304878, COLOR.nightForestSky, 38, 85, 0.45, 0.42);
+    this._applyNightLighting(0x8899bb, 0x0a1520, 42, 90, 0.55, 0.72);
+    this._scene.background = new THREE.Color(0x1a2a4a);
 
     const geoNF = new THREE.PlaneGeometry(160, 60, 64, 24);
     this._applyGrassVertexColors(geoNF, 0x2A4A28, [

@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 
-const FOV_NORMAL = 55;
-const FOV_EXPLOSION = 62;
+const FOV_NORMAL_DESKTOP = 55;
+const FOV_NORMAL_MOBILE  = 62;
+const FOV_EXPLOSION = 68;
 const PIXEL_RATIO_CAP = 1.75;
+
+function isMobile() { return window.innerWidth < 768; }
 
 const INTRO_DURATION  = 1.5;
 const INTRO_START_Y   = 80;
@@ -24,6 +27,7 @@ export class Renderer {
     this._cameraVelocity = new THREE.Vector3();
     this._cameraOffset   = new THREE.Vector3(0, 28, 18);
     this._introTimer = 0;
+    this._fovNormal  = FOV_NORMAL_DESKTOP;
   }
 
   init(container) {
@@ -33,13 +37,14 @@ export class Renderer {
     this.scene.background = new THREE.Color(0x8EC7FF);
     this.scene.fog = new THREE.Fog(0x8EC7FF, 60, 130);
 
+    this._applyMobileOffset();
     this.camera = new THREE.PerspectiveCamera(
-      FOV_NORMAL,
+      this._fovNormal,
       container.clientWidth / container.clientHeight,
       0.1,
       200
     );
-    this.camera.position.set(0, 28, 18);
+    this.camera.position.copy(this._cameraOffset);
     this.camera.lookAt(0, 0, 0);
 
     this._renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -54,10 +59,22 @@ export class Renderer {
     window.addEventListener('resize', () => this.resize());
   }
 
+  _applyMobileOffset() {
+    if (isMobile()) {
+      this._cameraOffset.set(0, 15, 14);
+      this._fovNormal = FOV_NORMAL_MOBILE;
+    } else {
+      this._cameraOffset.set(0, 28, 18);
+      this._fovNormal = FOV_NORMAL_DESKTOP;
+    }
+  }
+
   resize() {
+    this._applyMobileOffset();
     const w = this._container.clientWidth;
     const h = this._container.clientHeight;
     this.camera.aspect = w / h;
+    this.camera.fov = this._fovNormal;
     this.camera.updateProjectionMatrix();
     this._renderer.setSize(w, h);
   }
@@ -118,6 +135,9 @@ export class Renderer {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Current normal FOV (mobile or desktop). */
+  get fovNormal() { return this._fovNormal; }
+
   update(dt) {
     // Smooth camera follow — target leads drone by velocity * 0.3
     const leadX = this._cameraTarget.x + this._cameraVelocity.x * 0.3;
@@ -152,7 +172,7 @@ export class Renderer {
     if (this._fovTimer > 0) {
       this._fovTimer -= dt;
       const t = Math.max(0, this._fovTimer / 0.4);
-      this.camera.fov = FOV_NORMAL + (FOV_EXPLOSION - FOV_NORMAL) * t;
+      this.camera.fov = this._fovNormal + (FOV_EXPLOSION - this._fovNormal) * t;
       this.camera.updateProjectionMatrix();
     }
   }
