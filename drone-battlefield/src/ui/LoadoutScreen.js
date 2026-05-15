@@ -87,9 +87,8 @@ export class LoadoutScreen {
 
     this._tab            = 'drone';
     this._selectedDrone  = 'wasp';
-    this._slot1          = null;   // weapon type string or null
-    this._slot2          = null;
-    this._activeSlot     = 1;      // which slot is highlighted for assignment
+    this._slot1 = null;   // weapon type string or null
+    this._slot2 = null;
   }
 
   init(roguelite) {
@@ -265,19 +264,41 @@ export class LoadoutScreen {
       return;
     }
 
-    // Slot rows
-    const slot1Row = this._makeSlotRow(1, this._slot1);
-    const slot2Row = this._makeSlotRow(2, this._slot2);
-    this._contentEl.appendChild(slot1Row);
-    this._contentEl.appendChild(slot2Row);
+    // Status bar — shows current slot assignments at a glance
+    const statusBar = document.createElement('div');
+    statusBar.style.cssText = `
+      display:flex; gap:8px; margin-bottom:12px; padding:10px 12px;
+      background:#111c2e; border-radius:8px;
+      border:1px solid rgba(255,255,255,.1);
+      align-items:center;
+    `;
+    const slotLabel = document.createElement('span');
+    slotLabel.style.cssText = 'font-size:.62rem;font-weight:700;letter-spacing:.12em;color:rgba(255,255,255,.4);text-transform:uppercase;flex-shrink:0;';
+    slotLabel.textContent = 'SLOTS:';
+    statusBar.appendChild(slotLabel);
+
+    for (const [num, weapon] of [[1, this._slot1], [2, this._slot2]]) {
+      const pill = document.createElement('span');
+      const filled = !!weapon;
+      pill.style.cssText = `
+        flex:1; padding:5px 10px; border-radius:5px; text-align:center;
+        font-size:.72rem; font-weight:700; letter-spacing:.05em;
+        background:${filled ? 'rgba(41,123,255,.25)' : 'rgba(255,255,255,.06)'};
+        border:1px solid ${filled ? '#297BFF' : 'rgba(255,255,255,.15)'};
+        color:${filled ? '#fff' : 'rgba(255,255,255,.3)'};
+      `;
+      pill.textContent = filled ? `${num === 1 ? '①' : '②'} ${WEAPON_NAMES[weapon]}` : `${num === 1 ? '①' : '②'} — empty —`;
+      statusBar.appendChild(pill);
+    }
+    this._contentEl.appendChild(statusBar);
 
     // Hint
     const hint = document.createElement('div');
     hint.className = 'lo-weapons-hint';
-    hint.textContent = t('loadout.weaponHint') || 'Tap a slot, then tap a weapon to assign';
+    hint.textContent = t('loadout.weaponHint') || 'Tap to assign · Tap again to remove';
     this._contentEl.appendChild(hint);
 
-    // Weapon picker grid
+    // Weapon grid — one tap assigns, second tap clears
     const grid = document.createElement('div');
     grid.className = 'shop-grid';
 
@@ -289,6 +310,18 @@ export class LoadoutScreen {
       const card = document.createElement('div');
       card.className = 'shop-card' + (isAssigned ? ' shop-card--selected' : '');
 
+      // Slot badge — absolute top-left corner
+      if (isInSlot1 || isInSlot2) {
+        const badge = document.createElement('span');
+        badge.style.cssText = `
+          position:absolute; top:4px; left:5px;
+          font-size:.75rem; font-weight:700; color:#297BFF;
+          line-height:1;
+        `;
+        badge.textContent = isInSlot1 ? '①' : '②';
+        card.appendChild(badge);
+      }
+
       const iconEl = document.createElement('div');
       iconEl.className = 'shop-card-icon';
       iconEl.innerHTML = WEAPON_SVG[w] || '';
@@ -299,17 +332,13 @@ export class LoadoutScreen {
       nameEl.textContent = WEAPON_NAMES[w] || w.toUpperCase();
       card.appendChild(nameEl);
 
-      if (isInSlot1) {
-        const slotLabel = document.createElement('div');
-        slotLabel.className = 'shop-card-stat';
-        slotLabel.textContent = 'SLOT 1';
-        card.appendChild(slotLabel);
-      } else if (isInSlot2) {
-        const slotLabel = document.createElement('div');
-        slotLabel.className = 'shop-card-stat';
-        slotLabel.textContent = 'SLOT 2';
-        card.appendChild(slotLabel);
-      }
+      // State label below name
+      const stateEl = document.createElement('div');
+      stateEl.className = 'shop-card-stat';
+      if (isInSlot1) stateEl.textContent = 'SLOT 1 ✓';
+      else if (isInSlot2) stateEl.textContent = 'SLOT 2 ✓';
+      else stateEl.textContent = 'tap to assign';
+      card.appendChild(stateEl);
 
       card.addEventListener('pointerdown', () => {
         bus.emit('ui:click');
@@ -322,45 +351,8 @@ export class LoadoutScreen {
     this._contentEl.appendChild(grid);
   }
 
-  _makeSlotRow(slotNum, weaponType) {
-    const row = document.createElement('div');
-    row.className = 'lo-slot-row' + (this._activeSlot === slotNum ? ' lo-slot-row--active' : '');
-
-    const label = document.createElement('span');
-    label.className = 'lo-slot-label';
-    label.textContent = `SLOT ${slotNum}`;
-    row.appendChild(label);
-
-    const value = document.createElement('span');
-    value.className = 'lo-slot-value' + (weaponType ? '' : ' lo-slot-value--empty');
-    value.textContent = weaponType ? (WEAPON_NAMES[weaponType] || weaponType.toUpperCase()) : '— none —';
-    row.appendChild(value);
-
-    if (weaponType) {
-      const clear = document.createElement('span');
-      clear.className = 'lo-slot-clear';
-      clear.textContent = '✕';
-      clear.addEventListener('pointerdown', (e) => {
-        e.stopPropagation();
-        if (slotNum === 1) this._slot1 = null;
-        else this._slot2 = null;
-        this._saveLoadout();
-        this._renderContent();
-      });
-      row.appendChild(clear);
-    }
-
-    row.addEventListener('pointerdown', () => {
-      bus.emit('ui:click');
-      this._activeSlot = slotNum;
-      this._renderContent();
-    });
-
-    return row;
-  }
-
   _assignWeapon(weaponType) {
-    // If weapon is already in either slot, clear it (toggle off)
+    // Tap on already-assigned weapon → clear that slot
     if (this._slot1 === weaponType) {
       this._slot1 = null;
       this._saveLoadout();
@@ -373,13 +365,13 @@ export class LoadoutScreen {
       this._renderContent();
       return;
     }
-    // Assign to active slot
-    if (this._activeSlot === 1) {
+    // Fill first empty slot; if both full, replace slot 1
+    if (!this._slot1) {
       this._slot1 = weaponType;
-      this._activeSlot = 2; // auto-advance to slot 2
-    } else {
+    } else if (!this._slot2) {
       this._slot2 = weaponType;
-      this._activeSlot = 1;
+    } else {
+      this._slot1 = weaponType; // both full → replace slot 1
     }
     this._saveLoadout();
     this._renderContent();
